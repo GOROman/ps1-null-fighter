@@ -2,24 +2,18 @@
  *
  * Controls
  *   D-pad                steer the monkey on the cloth grid (Dancing Eyes style)
- *   Left stick           orbit camera
- *   Right stick up/down  move camera up / down
- *   SELECT + D-pad       up/down: move camera up / down, left/right: dolly
+ *   Left stick           orbit camera        Right stick up/down: camera up / down
+ *   SELECT + D-pad       orbit camera (for digital pads)
+ *   SELECT + Triangle/Cross   camera up / down
+ *   SELECT + Square      reset the cloth
  *   Triangle / Cross     dolly in / out (distance)
  *   Square / Circle      zoom in / out (field of view)
  *   L1                   rotate model (yaw)
- *   R1                   IK mode on / off
- *   L2 / R2              previous / next animation
- *   SELECT               toggle flat / Gouraud shading (on release)
- *   START                switch character (on release)
- *   START + SELECT       IK mode on / off (same as R1)
+ *   R1 / START+SELECT    IK mode on / off (the dance restarts on entry)
+ *   L2 / R2              previous / next animation (outside IK mode)
+ *   SELECT (tap)         toggle flat / Gouraud shading
+ *   START (tap)          switch character
  *   L3 (stick click)     pause / resume animation
- *
- * IK mode: the pose is frozen, hands and feet stay where they were (two
- * bone IK), the d-pad moves the hip (left/right = X, up/down = height,
- * L2/R2 = forward/back) and the head looks at the camera.  The viewer
- * boots in IK mode with the hip "dancing" on a sine circle; touching the
- * d-pad takes over, R1 (re-enter) restarts the dance.
  *
  * The bar on the left is a frame profiler in h-blank units (a full frame
  * is the white line): yellow input, orange pose, green vertex transform,
@@ -309,12 +303,20 @@ int main(void) {
 		prev_btn = btn;
 
 		if (held & PAD_SELECT) {
-			/* SELECT + d-pad: camera height / distance (digital pads have no right stick) */
-			if (held & PAD_UP)    dpan  -= 24;
-			if (held & PAD_DOWN)  dpan  += 24;
-			if (held & PAD_LEFT)  ddist += 48;
-			if (held & PAD_RIGHT) ddist -= 48;
-			if (held & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT))
+			/* SELECT + d-pad: orbit; SELECT + triangle/cross: camera up/down;
+			 * SELECT + square: reset the cloth (digital pads have no sticks) */
+			if (held & PAD_LEFT)     dyaw   -= 32;
+			if (held & PAD_RIGHT)    dyaw   += 32;
+			if (held & PAD_UP)       dpitch += 24;
+			if (held & PAD_DOWN)     dpitch -= 24;
+			if (held & PAD_TRIANGLE) dpan   -= 24;
+			if (held & PAD_CROSS)    dpan   += 24;
+			if ((pressed & PAD_SQUARE) && walker.nquads) {
+				walker_reset(&walker, &model);
+				renderer.cut = walker.tri_cut;
+				clear_t = 0;
+			}
+			if (held & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT | PAD_TRIANGLE | PAD_CROSS | PAD_SQUARE))
 				combo_used = 1;               /* do not toggle shading on release */
 		} else {
 			/* d-pad steers the monkey on the cloth grid (screen directions);
@@ -329,15 +331,12 @@ int main(void) {
 				if (held & PAD_DOWN)  dpitch -= 24;
 			}
 		}
-		if (held & PAD_TRIANGLE) ddist -= 96;
-		if (held & PAD_CROSS)    ddist += 96;
-		if ((pressed & PAD_CROSS) && walker.nquads) {   /* reset the cloth */
-			walker_reset(&walker, &model);
-			renderer.cut = walker.tri_cut;
-			clear_t = 0;
+		if (!(held & PAD_SELECT)) {
+			if (held & PAD_TRIANGLE) ddist -= 96;
+			if (held & PAD_CROSS)    ddist += 96;
+			if (held & PAD_SQUARE)   dfov  += 8;
+			if (held & PAD_CIRCLE)   dfov  -= 8;
 		}
-		if (held & PAD_SQUARE) dfov += 8;
-		if (held & PAD_CIRCLE) dfov -= 8;
 		if (held & PAD_L1) model_yaw += 32;
 		model_yaw &= 4095;
 
