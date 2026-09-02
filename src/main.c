@@ -159,9 +159,10 @@ static char *draw_floor(const Camera *cam, uint32_t *ot, char *nextpri) {
 				continue;                                   /* off screen */
 			if (xmax - xmin > 1000 || ymax - ymin > 500)
 				continue;                                   /* too big for the GPU */
-			int otz = ((z0 + z1 + z2 + z3) * 3) >> (4 + OTZ_SHIFT);   /* same scale as the model */
-			if (otz >= OT_LEN) otz = OT_LEN - 1;
-			if (otz <= 0) continue;
+			/* the floor is a single plane: draw it first (far end of the
+			 * reversed OT) so nothing standing on it is ever hidden by a
+			 * cell whose average depth happens to be nearer */
+			int otz = OT_LEN - 1;
 			setPolyF4(q);
 			if ((i + j) & 1)
 				setRGB0(q, 44, 76, 140);
