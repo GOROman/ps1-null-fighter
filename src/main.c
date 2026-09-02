@@ -17,7 +17,8 @@
  * The bar on the left is a frame profiler in h-blank units (a full frame
  * is the white line): yellow input, orange pose, green vertex transform,
  * cyan primitive setup, magenta text/overlay, red waiting for the GPU,
- * grey waiting for v-blank.
+ * black waiting for v-blank.  A frame longer than 1/60 s spills into a
+ * second column.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -175,11 +176,14 @@ static char *draw_floor(const Camera *cam, uint32_t *ot, char *nextpri) {
 }
 
 /* Profiler bar: stages stacked top to bottom at the left edge, PROF_SCALE
- * pixels per frame (263 h-blanks).  A white line marks one full frame. */
+ * pixels per frame (263 h-blanks).  Time beyond one frame (a 30 fps frame)
+ * continues in a second column to the right, so a dropped frame shows up
+ * as two bars. */
 #define PROF_X      2
 #define PROF_W      4
 #define PROF_Y      8
 #define PROF_SCALE  200
+#define PROF_FRAME  263
 static const uint8_t prof_color[PROF_STAGES][3] = {
 	{ 255, 220,  40 },   /* input   yellow */
 	{ 255, 160,  40 },   /* pose    orange */
@@ -187,22 +191,32 @@ static const uint8_t prof_color[PROF_STAGES][3] = {
 	{  60, 200, 240 },   /* prims   cyan */
 	{ 230,  80, 230 },   /* misc    magenta */
 	{ 240,  50,  50 },   /* gpu     red */
-	{  90,  90, 100 },   /* vsync   grey */
+	{   0,   0,   0 },   /* vsync   black */
 };
 static char *prof_draw(uint32_t *ot, char *nextpri) {
 	TILE *t = (TILE *)nextpri;
-	int y = PROF_Y;
+	int pos = 0;                           /* h-blanks from the frame start */
 	for (int i = 0; i < PROF_STAGES; i++) {
-		int h = (prof_stage[i] * PROF_SCALE) / 263;
-		if (y + h > SCREEN_YRES - 2) h = SCREEN_YRES - 2 - y;
-		if (h <= 0) continue;
-		setTile(t);
-		setRGB0(t, prof_color[i][0], prof_color[i][1], prof_color[i][2]);
-		setXY0(t, PROF_X, y);
-		setWH(t, PROF_W, h);
-		addPrim(ot, t);
-		t++;
-		y += h;
+		int left = prof_stage[i];
+		while (left > 0) {
+			int col = pos / PROF_FRAME;
+			int in_col = pos % PROF_FRAME;
+			int n = left;
+			if (in_col + n > PROF_FRAME) n = PROF_FRAME - in_col;   /* split at the frame boundary */
+			if (col > 3) { pos += left; break; }
+			int y0 = PROF_Y + (in_col * PROF_SCALE) / PROF_FRAME;
+			int y1 = PROF_Y + ((in_col + n) * PROF_SCALE) / PROF_FRAME;
+			if (y1 > y0) {
+				setTile(t);
+				setRGB0(t, prof_color[i][0], prof_color[i][1], prof_color[i][2]);
+				setXY0(t, PROF_X + col * (PROF_W + 2), y0);
+				setWH(t, PROF_W, y1 - y0);
+				addPrim(ot, t);
+				t++;
+			}
+			pos += n;
+			left -= n;
+		}
 	}
 	/* half-frame and full-frame marks */
 	for (int k = 1; k <= 2; k++) {
