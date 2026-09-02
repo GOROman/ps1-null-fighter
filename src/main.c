@@ -11,7 +11,6 @@
  *   L1                   rotate model (yaw)
  *   R1 / START+SELECT    IK mode on / off (the dance restarts on entry)
  *   L2 / R2              previous / next animation (outside IK mode)
- *   SELECT (tap)         toggle flat / Gouraud shading
  *   START (tap)          switch character
  *   L3 (stick click)     pause / resume animation
  *
@@ -388,8 +387,6 @@ int main(void) {
 		}
 		if (!(held & (PAD_START | PAD_SELECT)))
 			combo_used = 0;
-		if ((released & PAD_SELECT) && !combo_used)
-			renderer.shading ^= 1;
 		if (!ik.active) {
 			if (pressed & PAD_L2)
 				pose_set_anim(&pose, pose.anim - 1);
