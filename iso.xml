@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<iso_project>
+	<track type="data">
+		<identifiers
+			system			="PLAYSTATION"
+			volume			="NULLFIGHTER"
+			volume_set		="NULLFIGHTER"
+			publisher		="GOROMAN"
+			data_preparer	="PSN00BSDK ${PSN00BSDK_VERSION}"
+			application		="PLAYSTATION"
+		/>
+		<!--<license file="${PROJECT_SOURCE_DIR}/license.dat" />-->
+		<directory_tree>
+			<file name="SYSTEM.CNF" type="data" source="${PROJECT_SOURCE_DIR}/system.cnf" />
+			<file name="NULLFGT.EXE" type="data" source="nullfighter.exe" />
+			<dummy sectors="1024"/>
+		</directory_tree>
+	</track>
+</iso_project>
