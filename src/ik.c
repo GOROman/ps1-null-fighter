@@ -8,9 +8,9 @@
 #include "ik.h"
 #include "fixmath.h"
 
-/* head may turn at most ~75 degrees away from its animated direction */
-#define LOOK_COS   1060           /* cos 75 */
-#define LOOK_SIN   3956           /* sin 75 */
+
+static VECTOR look_smooth;        /* head look-at: filtered desired direction (model space) */
+static int look_init;
 
 static int16_t clamp16(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : (int16_t)v; }
 
@@ -68,6 +68,7 @@ static VECTOR effector_pos(const Pose *pose, const ModelIKChain *c) {
 
 void ik_enter(IKState *s, const Model *m, Pose *pose) {
 	memset(s, 0, sizeof(*s));
+	look_init = 0;
 	if (!m->ik) return;
 	s->active = 1;
 	pose->hip_bone = m->ik->hip;
@@ -147,6 +148,37 @@ static void solve_chain(Pose *pose, const ModelIKChain *c, VECTOR target, uint8_
 	}
 }
 
+/* Head look-at with limits relative to the animated head direction (which
+ * follows the body): horizontal +-55 degrees, vertical +-25 degrees, and a
+ * low-pass filtered target so the head lags behind the camera instead of
+ * snapping to it. */
+#define LOOK_H_COS  2349          /* cos 55 */
+#define LOOK_H_SIN  3355          /* sin 55 */
+#define LOOK_V_SIN  1731          /* sin 25 */
+#define LOOK_LAG    12            /* frames to close ~63% of the gap */
+
+
+static VECTOR limit_dir(VECTOR base, VECTOR fd) {
+	/* horizontal component of both */
+	VECTOR bh = vnorm(vec(base.vx, 0, base.vz));
+	VECTOR dh = vnorm(vec(fd.vx, 0, fd.vz));
+	if (bh.vx == 0 && bh.vz == 0) return fd;
+	if (dh.vx == 0 && dh.vz == 0) dh = bh;
+	int32_t c = (int32_t)(vdot(bh, dh) >> 12);
+	if (c < LOOK_H_COS) {
+		VECTOR w = vnorm(vsub(dh, vscale(bh, c)));
+		dh = vadd(vscale(bh, LOOK_H_COS), vscale(w, LOOK_H_SIN));
+	}
+	/* vertical: keep the elevation within +-25 degrees of the base */
+	int32_t y = fd.vy;
+	if (y > base.vy + LOOK_V_SIN) y = base.vy + LOOK_V_SIN;
+	if (y < base.vy - LOOK_V_SIN) y = base.vy - LOOK_V_SIN;
+	if (y > 4000) y = 4000;
+	if (y < -4000) y = -4000;
+	int32_t s = (int32_t)isqrt32((uint32_t)(4096 * 4096 - y * y));
+	return vec((dh.vx * s) >> 12, y, (dh.vz * s) >> 12);
+}
+
 static void look_at(Pose *pose, const ModelIK *ik, const Camera *cam, uint8_t *modified) {
 	if (ik->head < 0) return;
 	MATRIX *wh = &pose->world[ik->head];
@@ -158,16 +190,17 @@ static void look_at(Pose *pose, const ModelIK *ik, const Camera *cam, uint8_t *m
 	VECTOR fwd_local = vec(ik->head_fwd[0], ik->head_fwd[1], ik->head_fwd[2]), fwd;
 	ApplyMatrixLV(wh, &fwd_local, &fwd);
 	VECTOR fc = vnorm(fwd);
-	VECTOR fd = vnorm(vsub(cp, mat_t(wh)));
 	if (fc.vx == 0 && fc.vy == 0 && fc.vz == 0) return;
-	int32_t c = (int32_t)(vdot(fc, fd) >> 12);
-	if (c < LOOK_COS) {
-		/* clamp: rotate only up to the limit angle towards the camera */
-		VECTOR w = vnorm(vsub(fd, vscale(fc, c)));
-		fd = vadd(vscale(fc, LOOK_COS), vscale(w, LOOK_SIN));
-	}
+	VECTOR fd = limit_dir(fc, vnorm(vsub(cp, mat_t(wh))));
+	/* lag: move the filtered direction a fraction of the way each frame */
+	if (!look_init) { look_smooth = fc; look_init = 1; }
+	look_smooth.vx += (fd.vx - look_smooth.vx) / LOOK_LAG;
+	look_smooth.vy += (fd.vy - look_smooth.vy) / LOOK_LAG;
+	look_smooth.vz += (fd.vz - look_smooth.vz) / LOOK_LAG;
+	VECTOR target = vnorm(look_smooth);
+	if (target.vx == 0 && target.vy == 0 && target.vz == 0) return;
 	MATRIX r;
-	rot_between(fc, fd, &r);
+	rot_between(fc, target, &r);
 	rotate_world(wh, &r, mat_t(wh));
 	modified[ik->head] = 1;
 }
