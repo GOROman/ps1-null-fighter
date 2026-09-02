@@ -79,6 +79,7 @@ static const ModelAsset assets[] = {
 #define NUM_ASSETS ((int)(sizeof(assets) / sizeof(assets[0])))
 
 static uint8_t pad_buff[2][34];
+static int fnt_hud = -1, fnt_dbg = -1;
 
 uint16_t prof_stage[PROF_STAGES];
 uint16_t prof_last;
@@ -107,7 +108,8 @@ static void init_graphics(void) {
 	gte_SetGeomScreen(CENTERX);
 
 	FntLoad(960, 0);
-	FntOpen(12, 8, SCREEN_XRES - 20, 64, 0, 256);
+	fnt_hud = FntOpen(12, 8, SCREEN_XRES - 20, 16, 0, 64);                 /* game HUD, top */
+	fnt_dbg = FntOpen(12, SCREEN_YRES - 40, SCREEN_XRES - 20, 32, 0, 256);  /* debug, bottom */
 }
 
 /* sin(2 pi (t / period + phase / 4096)) in 4096 units, via the GTE rotation matrix */
@@ -435,20 +437,25 @@ int main(void) {
 		db_nextpri = prof_draw(db[db_active].ot, db_nextpri);
 
 		const ModelAnim *a = &model.anims[pose.anim];
-		FntPrint(-1, "NULL FIGHTER  %s\n", renderer.shading == SHADE_FLAT ? "FLAT" : "GOURAUD");
-		if (ik.active)
-			FntPrint(-1, "IK %s HIP %d,%d,%d  (%s %d)\n", dance ? "DANCE" : "MODE ", pose.hip_offset.vx,
+		/* game HUD (top) */
+		if (walker.nquads)
+			FntPrint(fnt_hud, "CLOTH %d/%d %s\n", walker.ncut, walker.nquads,
+			         clear_t ? "  * CLEAR *" : "");
+		FntFlush(fnt_hud);
+		/* debug (bottom) */
+		if (ik.active && !dance)
+			FntPrint(fnt_dbg, "IK MODE HIP %d,%d,%d  (%s %d)\n", pose.hip_offset.vx,
 			         pose.hip_offset.vy, pose.hip_offset.vz, a->name, pose.frame);
-		else
-			FntPrint(-1, "ANIM %d/%d %-15s %3d/%3d %s\n", pose.anim + 1, model.hdr->nanims, a->name,
+		else if (!ik.active)
+			FntPrint(fnt_dbg, "ANIM %d/%d %-15s %3d/%3d %s\n", pose.anim + 1, model.hdr->nanims, a->name,
 			         pose.frame, a->nframes, pose.playing ? "" : "PAUSE");
-		FntPrint(-1, "TRIS %d  FPS %d  CPU %d HB  FOV %d\n", renderer.tris_drawn, fps,
+		else
+			FntPrint(fnt_dbg, "\n");
+		FntPrint(fnt_dbg, "%s TRI%d FPS%d CPU%d FOV%d\n",
+		         renderer.shading == SHADE_FLAT ? "FLAT" : "GOUR", renderer.tris_drawn, fps,
 		         prof_stage[PROF_INPUT] + prof_stage[PROF_POSE] + prof_stage[PROF_VERTS] +
 		         prof_stage[PROF_PRIMS] + prof_stage[PROF_MISC], cam.fov);
-		if (walker.nquads)
-			FntPrint(-1, "CLOTH %d/%d %s\n", walker.ncut, walker.nquads,
-			         clear_t ? "  * CLEAR *" : "");
-		FntFlush(-1);
+		FntFlush(fnt_dbg);
 		prof_mark(PROF_MISC);
 
 		display();
