@@ -548,7 +548,7 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
         head_mask |= body[5]                            # + the hands
         T, cuv = T[head_mask], cuv[head_mask]          # the original keeps only the head (and hands)
         if target_tris:
-            target_tris = max(600, target_tris - len(body[2]))     # the head keeps at least 600
+            target_tris = max(450, target_tris - len(body[2]))     # the head keeps at least 450
     # face region (above the neck line, mesh Y-up): protected from decimation
     head = P[:, 1] >= ymin + (H - ymin) * face_min_y
     # the face proper: front half of the head (hair stays in the body atlas)
@@ -595,7 +595,7 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
                 import bodygen
                 hu, hv, hw, hh = bodygen.HAIR_RECT
                 vmap, T2, uvs = do_reatlas(P, Tg, resolution=hw)
-                hair_img = bake(uvs[T2], cuv[g], texture, size=hw)
+                hair_img = bake(uvs[T2], cuv[g], texture, size=hw).resize((hw, hh))
                 comp = body[3].copy()
                 comp[hv:hv + hh, hu:hu + hw] = np.asarray(hair_img)
                 from PIL import Image
@@ -619,20 +619,41 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
             if dsg.any():
                 edges += [(a + base, b + base) for a, b in quad_edges(P[vmap], T2[dsg])]
         if body is not None:
-            Pg, vg, tg, _img, bones_g, _keep = body
-            pbase, vbase = len(P), len(new_verts)
+            Pg, vg, tg, _img, bones_g, _keep, cloth = body
+            pbase, vbase, tbase = len(P), len(new_verts), len(new_tris)
             P = np.vstack([P, Pg])
             new_verts += [(i + pbase, n, uv) for (i, n, uv) in vg]
             new_tris += [(a + vbase, b + vbase, c + vbase, 0, 0) for (a, b, c) in tg]
             pos_bone = np.concatenate([pos_bone, bones_g])
+            body_quads = [(q[0] + vbase, q[1] + vbase, q[2] + vbase, q[3] + vbase, q[4] + tbase, q[5] + tbase)
+                          for q in cloth["quads"]]
+            edges += [(a + vbase, b + vbase) for a, b in cloth["edges"]]
+            body_rings = {k: [[v + vbase for v in ring] for ring in rings] for k, rings in cloth["rings"].items()}
             if verbose:
-                print("generated body: %d verts, %d tris" % (len(vg), len(tg)))
+                print("generated body: %d verts, %d tris, cloth %d cells" % (len(vg), len(tg), len(body_quads)))
+        else:
+            body_quads, body_rings = [], {}
         skirt_pos_start = len(P)
+        quads = []
         if skirt_dims:
             from sprite import tartan
-            P, new_verts, new_tris, sk_edges, quads = generate_skirt(P, new_verts, new_tris, skirt_dims, len(textures))
+            P, new_verts, new_tris, sk_edges, quads, sk_rings = generate_skirt(P, new_verts, new_tris, skirt_dims, len(textures))
             edges += sk_edges
             textures.append(tartan(SKIRT_TEX_SIZE))
+            # bridges so the monkey can walk between the cloth pieces:
+            # skirt top ring <-> jacket (root) bottom ring, root top <-> spine bottom
+            def bridge(ring_a, ring_b):
+                out = []
+                for va in ring_a:
+                    pa = P[new_verts[va][0]]
+                    vb = min(ring_b, key=lambda v: np.sum((P[new_verts[v][0]] - pa) ** 2))
+                    out.append((va, vb))
+                return out
+            if "root" in body_rings:
+                edges += bridge(sk_rings[-1], body_rings["root"][0])
+            if "root" in body_rings and "spine" in body_rings:
+                edges += bridge(body_rings["root"][-1], body_rings["spine"][0])
+        quads = body_quads + quads
         return P, new_verts, new_tris, textures, edges, skirt_pos_start, pos_bone, quads
     # no re-atlas: unique (position, uv) per corner
     vmap = {}
@@ -708,7 +729,8 @@ def generate_skirt(P, new_verts, new_tris, dims, tex_id):
     for r in range(R):
         for i in range(N):
             edges.append((ring_idx[r][i], ring_idx[r + 1][i]))
-    return np.array(pos), new_verts, new_tris, edges, quads
+    rings = [[ring[i] for i in range(N)] for ring in ring_idx]     # rings[0] = waist, rings[-1] = hem
+    return np.array(pos), new_verts, new_tris, edges, quads, rings
 
 
 def build_ik_table(bone_names, parents, bone_bind_global, inv_bind, bind_local, front_fbx, rig, verbose=True):

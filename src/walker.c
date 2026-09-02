@@ -57,14 +57,37 @@ void walker_reset(Walker *w, const Model *m) {
 			}
 		}
 	}
+	/* pieces: connected cell grids (jacket parts, skirt) - a cut only ever
+	 * compares regions inside the same piece */
+	for (int q = 0; q < w->nquads; q++) w->quad_piece[q] = -1;
+	w->npieces = 0;
+	for (int q = 0; q < w->nquads; q++) {
+		if (w->quad_piece[q] >= 0) continue;
+		static int16_t stack[MAX_QUADS];
+		int sp = 0;
+		stack[sp++] = q;
+		w->quad_piece[q] = w->npieces;
+		while (sp) {
+			int c = stack[--sp];
+			for (int k = 0; k < 4; k++) {
+				int e = w->quad_edge[c][k];
+				if (e < 0) continue;
+				int o = w->edge_quad[e][0] == c ? w->edge_quad[e][1] : w->edge_quad[e][0];
+				if (o >= 0 && w->quad_piece[o] < 0) { w->quad_piece[o] = w->npieces; stack[sp++] = o; }
+			}
+		}
+		w->npieces++;
+	}
 }
 
 /* after an edge got walked: cells no longer connected to the largest
  * region through unwalked edges are cut out */
 static void cut_enclosed(Walker *w, const Model *m, const VCache *vc) {
 	static int16_t comp[MAX_QUADS], stack[MAX_QUADS];
-	int ncomp = 0, best = -1, best_size = 0;
-	static int sizes[MAX_QUADS];
+	static int sizes[MAX_QUADS], comp_piece[MAX_QUADS];
+	static int best_of_piece[32];
+	int ncomp = 0;
+	for (int p = 0; p < 32; p++) best_of_piece[p] = -1;
 	for (int q = 0; q < w->nquads; q++) comp[q] = w->quad_cut[q] ? -2 : -1;
 	for (int q = 0; q < w->nquads; q++) {
 		if (comp[q] != -1) continue;
@@ -82,13 +105,21 @@ static void cut_enclosed(Walker *w, const Model *m, const VCache *vc) {
 			}
 		}
 		sizes[ncomp] = size;
-		if (size > best_size) { best_size = size; best = ncomp; }
+		comp_piece[ncomp] = w->quad_piece[q];
+		int p = w->quad_piece[q];
+		if (p >= 0 && p < 32 && (best_of_piece[p] < 0 || size > sizes[best_of_piece[p]]))
+			best_of_piece[p] = ncomp;
 		ncomp++;
 	}
-	if (ncomp <= 1) return;
+	int any = 0;
+	for (int c = 0; c < ncomp; c++)
+		if (comp_piece[c] >= 0 && comp_piece[c] < 32 && best_of_piece[comp_piece[c]] != c) any = 1;
+	if (!any) return;
 	w->cut_event++;
 	for (int q = 0; q < w->nquads; q++) {
-		if (comp[q] < 0 || comp[q] == best) continue;
+		if (comp[q] < 0) continue;
+		int p = w->quad_piece[q];
+		if (p < 0 || p >= 32 || best_of_piece[p] == comp[q]) continue;
 		const ModelQuad *mq = &m->quads[q];
 		w->quad_cut[q] = 1;
 		w->ncut++;

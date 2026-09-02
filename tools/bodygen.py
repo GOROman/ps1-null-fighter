@@ -22,7 +22,11 @@ LAYOUT = {                     # name: (u0, v0, w, h) in texels
     "thigh_L":    (0, 128, 64, 64), "thigh_R":    (64, 128, 64, 64),
     "shin_L":     (0, 192, 64, 64), "shin_R":     (64, 192, 64, 64),
 }
-HAIR_RECT = (128, 128, 128, 128)     # xatlas-packed hair goes here
+HAIR_RECT = (128, 144, 128, 112)     # xatlas-packed hair goes here
+SKIN_RECT = (128, 128, 64, 16)       # solid skin colour (inner body layer)
+UNDER_RECT = (192, 128, 64, 16)      # solid underwear colour
+CLOTH_PARTS = ()                     # lathes that are cloth (cut by the monkey); the skirt only for now
+INNER_SCALE = 0.86                   # inner body layer radius relative to the jacket
 SEGMENTS = {"root": 10, "spine": 10}   # default 6
 ROWS = {"root": 4, "spine": 5, "shin_L": 4, "shin_R": 4, "forearm_L": 4, "forearm_R": 4}   # default 3
 
@@ -51,15 +55,19 @@ def measure_profile(pts, rows, pad=0.02):
     return prof
 
 
-def lathe(prof, segments, uv_rect, bone, taper_ends=(False, False)):
-    """Rings through the profile.  Returns (positions, verts, tris) where
-    verts = (pos_index, normal, uv[0..1 atlas]) and tris index into verts."""
+def lathe(prof, segments, uv_rect, bone, taper_ends=(False, False), scale=1.0, flat_uv=False):
+    """Rings through the profile.  Returns (positions, verts, tris, rings,
+    quads) where verts = (pos_index, normal, uv[0..1 atlas]), tris index
+    into verts, rings[row] lists vertex indices around, quads = (v0, v1,
+    v2, v3, tri0, tri1) per cell.  flat_uv: every vertex maps to the
+    centre of uv_rect (solid colour)."""
     u0, v0, w, h = uv_rect
     pos, verts, tris = [], [], []
     rings = []
     nrows = len(prof) - 1
     for r, (y, cx, cz, rx, rz) in enumerate(prof):
         f = r / nrows
+        rx, rz = rx * scale, rz * scale
         if r == 0 and taper_ends[0]:
             rx, rz = rx * 0.6, rz * 0.6
         if r == nrows and taper_ends[1]:
@@ -71,18 +79,24 @@ def lathe(prof, segments, uv_rect, bone, taper_ends=(False, False)):
             n = np.array([math.cos(a) / rx, 0.0, math.sin(a) / rz])
             n /= np.linalg.norm(n)
             pos.append(np.array([x, y, z]))
-            u = (u0 + 0.5 + (w - 1) * i / segments) / ATLAS
-            v = (v0 + 0.5 + (h - 1) * (1 - f)) / ATLAS          # top of the part at the top of the rect
+            if flat_uv:
+                u, v = (u0 + w * 0.5) / ATLAS, (v0 + h * 0.5) / ATLAS
+            else:
+                u = (u0 + 0.5 + (w - 1) * i / segments) / ATLAS
+                v = (v0 + 0.5 + (h - 1) * (1 - f)) / ATLAS      # top of the part at the top of the rect
             verts.append((len(pos) - 1, tuple(n), (u, 1.0 - v)))
             ring.append(len(verts) - 1)
         rings.append(ring)
+    quads = []
     for r in range(nrows):
         for i in range(segments):
             a, b = rings[r][i], rings[r][i + 1]
             c, d = rings[r + 1][i], rings[r + 1][i + 1]
             # outward facing: (a, c, b) with y increasing upwards in FBX
+            t0 = len(tris)
             tris += [(a, c, b), (b, c, d)]
-    return pos, verts, tris
+            quads.append((a, b, d, c, t0, t0 + 1))
+    return pos, verts, tris, rings, quads
 
 
 # --------------------------------------------------------------------------
@@ -171,7 +185,11 @@ def generate_body(P, T, cuv, pos_bone, texture, verbose=True):
     keep: mask of original triangles to keep as they are (the hands)."""
     src = np.asarray(texture.convert("RGB"), dtype=np.float64)
     img = np.full((ATLAS, ATLAS, 3), 90, dtype=np.uint8)
+    for rect, col in ((SKIN_RECT, (236, 196, 160)), (UNDER_RECT, (245, 245, 250))):
+        u0, v0, w, h = rect
+        img[v0:v0 + h, u0:u0 + w] = col
     all_pos, all_verts, all_tris, bones = [], [], [], []
+    cloth = {"quads": [], "edges": [], "rings": {}}      # indices into the returned verts / tris
     tri_bone = pos_bone[T[:, 0]]
     ymin = P[:, 1].min()
     H = P[:, 1].max() - ymin
@@ -196,15 +214,33 @@ def generate_body(P, T, cuv, pos_bone, texture, verbose=True):
         rows = ROWS.get(name, 3)
         segs = SEGMENTS.get(name, 6)
         prof = measure_profile(pts, rows)
-        pos, verts, tris = lathe(prof, segs, LAYOUT[name], b)
+        pos, verts, tris, rings, quads = lathe(prof, segs, LAYOUT[name], b)
         base = len(all_pos)
         vbase = len(all_verts)
+        tbase = len(all_tris)
         all_pos += pos
         all_verts += [(i + base, n, uv) for (i, n, uv) in verts]
         all_tris += [(a + vbase, c + vbase, d + vbase) for (a, c, d) in tris]
         bones += [b] * len(pos)
+        if name in CLOTH_PARTS:
+            cloth["quads"] += [(q[0] + vbase, q[1] + vbase, q[2] + vbase, q[3] + vbase, q[4] + tbase, q[5] + tbase)
+                               for q in quads]
+            for ring in rings:
+                cloth["edges"] += [(ring[i] + vbase, ring[i + 1] + vbase) for i in range(segs)]
+            for r in range(rows):
+                cloth["edges"] += [(rings[r][i] + vbase, rings[r + 1][i] + vbase) for i in range(segs)]
+            cloth["rings"][name] = [[v + vbase for v in ring[:segs]] for ring in rings]
+            # inner body layer (skin, underwear band on the upper torso)
+            rect = UNDER_RECT if name == "spine" else SKIN_RECT
+            iprof = [prof[0], prof[len(prof) // 2], prof[-1]]           # 2 rows are enough for a solid layer
+            ipos, iverts, itris, _, _ = lathe(iprof, segs, rect, b, scale=INNER_SCALE, flat_uv=True)
+            ibase, ivbase = len(all_pos), len(all_verts)
+            all_pos += ipos
+            all_verts += [(i + ibase, n, uv) for (i, n, uv) in iverts]
+            all_tris += [(a + ivbase, c + ivbase, d + ivbase) for (a, c, d) in itris]
+            bones += [b] * len(ipos)
         bake_part(img, LAYOUT[name], prof, segs, P, Tb, cuv[tri_bone == b], src, 0.08 * H)
         if verbose:
             print("bodygen: %-11s %3d verts %3d tris  profile rx %.3f..%.3f" % (
                 name, len(pos), len(tris), min(p[3] for p in prof), max(p[3] for p in prof)))
-    return np.array(all_pos), all_verts, all_tris, img, np.array(bones, dtype=np.int64), keep
+    return np.array(all_pos), all_verts, all_tris, img, np.array(bones, dtype=np.int64), keep, cloth

@@ -18,7 +18,7 @@ set(ASSET_OUT   ${PROJECT_BINARY_DIR}/assets)
 set(MODEL_TRIS "1150" CACHE STRING "schoolgirl: target triangle count (0 = no decimation)")
 set(TOOL_DEPS ${PROJECT_SOURCE_DIR}/tools/fbx2ps1.py ${PROJECT_SOURCE_DIR}/tools/fbxparse.py
               ${PROJECT_SOURCE_DIR}/tools/meshopt.py ${PROJECT_SOURCE_DIR}/tools/autorig.py
-              ${PROJECT_SOURCE_DIR}/tools/sprite.py)
+              ${PROJECT_SOURCE_DIR}/tools/sprite.py ${PROJECT_SOURCE_DIR}/tools/bodygen.py)
 
 # convert_model(name fbx texture [FACE] extra-args...): FACE also writes
 # <name>_face.tim (second texture page for the face)

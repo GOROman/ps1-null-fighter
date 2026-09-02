@@ -118,86 +118,64 @@ static int dance_sin(int t, int period, int phase) {
 	return rm.m[0][2];
 }
 
-/* Floor: wire grid on the Y = 0 plane (model space, feet level), X axis red,
- * Z axis blue.  Lines with an end point behind the camera are dropped. */
-#define GRID_STEP  512
-#define GRID_N     8                      /* lines from -N..N in each direction */
-#define GRID_NEAR  128                    /* near plane, camera space */
-
-/* Liang-Barsky clip of a 2D segment to [-32, SCREEN_XRES+32] x [-32, SCREEN_YRES+32];
- * returns 0 if nothing remains */
-static int clip_line_2d(int *x0, int *y0, int *x1, int *y1) {
-	const int xmin = -32, xmax = SCREEN_XRES + 32, ymin = -32, ymax = SCREEN_YRES + 32;
-	int32_t dx = *x1 - *x0, dy = *y1 - *y0;
-	int32_t t0 = 0, t1 = 4096;            /* parameter range, 4096 = 1.0 */
-	int32_t p[4] = { -dx, dx, -dy, dy };
-	int32_t q[4] = { *x0 - xmin, xmax - *x0, *y0 - ymin, ymax - *y0 };
-	for (int i = 0; i < 4; i++) {
-		if (p[i] == 0) {
-			if (q[i] < 0) return 0;
-			continue;
-		}
-		int32_t t = (q[i] << 12) / p[i];
-		if (p[i] < 0) { if (t > t1) return 0; if (t > t0) t0 = t; }
-		else          { if (t < t0) return 0; if (t < t1) t1 = t; }
-	}
-	int nx0 = *x0 + ((dx * t0) >> 12), ny0 = *y0 + ((dy * t0) >> 12);
-	int nx1 = *x0 + ((dx * t1) >> 12), ny1 = *y0 + ((dy * t1) >> 12);
-	*x0 = nx0; *y0 = ny0; *x1 = nx1; *y1 = ny1;
-	return 1;
-}
+/* Floor: Space Harrier style checkerboard on the Y = 0 plane (model
+ * space, feet level).  The grid vertices are projected once through the
+ * GTE; a cell is drawn as a flat quad when its four corners are in front
+ * of the near plane and it fits the GPU's primitive size limit. */
+#define GRID_STEP  900
+#define GRID_N     5                      /* cells from -N..N-1 in each direction */
+#define GRID_V     (2 * GRID_N + 1)
+#define GRID_NEAR  96
 static char *draw_floor(const Camera *cam, uint32_t *ot, char *nextpri) {
-	LINE_F2 *l = (LINE_F2 *)nextpri;
-	const MATRIX *v = &cam->view;
-	for (int axis = 0; axis < 2; axis++) {
-		for (int i = -GRID_N; i <= GRID_N; i++) {
-			VECTOR p[2], c[2];
-			if (axis == 0) {   /* lines along X at z = i*step */
-				p[0] = vec(-GRID_N * GRID_STEP, 0, i * GRID_STEP);
-				p[1] = vec( GRID_N * GRID_STEP, 0, i * GRID_STEP);
-			} else {           /* lines along Z at x = i*step */
-				p[0] = vec(i * GRID_STEP, 0, -GRID_N * GRID_STEP);
-				p[1] = vec(i * GRID_STEP, 0,  GRID_N * GRID_STEP);
-			}
-			/* to camera space (GTE), then clip against the near plane */
-			for (int k = 0; k < 2; k++) {
-				ApplyMatrixLV((MATRIX *)v, &p[k], &c[k]);
-				c[k].vx += v->t[0]; c[k].vy += v->t[1]; c[k].vz += v->t[2];
-			}
-			if (c[0].vz < GRID_NEAR && c[1].vz < GRID_NEAR)
-				continue;
-			for (int k = 0; k < 2; k++) {
-				if (c[k].vz < GRID_NEAR) {
-					int o = 1 - k;
-					int32_t t = ((GRID_NEAR - c[k].vz) << 12) / (c[o].vz - c[k].vz);   /* 0..4096 */
-					c[k].vx += (int32_t)(((int32_t)(c[o].vx - c[k].vx) * t) >> 12);
-					c[k].vy += (int32_t)(((int32_t)(c[o].vy - c[k].vy) * t) >> 12);
-					c[k].vz = GRID_NEAR;
-				}
-			}
-			int sx[2], sy[2];
-			for (int k = 0; k < 2; k++) {
-				sx[k] = CENTERX + (int)(((int32_t)c[k].vx * cam->fov) / c[k].vz);
-				sy[k] = CENTERY + (int)(((int32_t)c[k].vy * cam->fov) / c[k].vz);
-			}
-			/* the GPU drops primitives wider than 1023 / taller than 511, so
-			 * clip the 2D segment to (a little more than) the screen */
-			if (!clip_line_2d(&sx[0], &sy[0], &sx[1], &sy[1]))
-				continue;
-			int otz = ((c[0].vz + c[1].vz) * 3) >> (3 + OTZ_SHIFT);   /* same scale as the model */
-			if (otz >= OT_LEN) otz = OT_LEN - 1;
-			if (otz <= 0) otz = 1;
-			setLineF2(l);
-			if (i == 0)
-				setRGB0(l, axis == 0 ? 200 : 60, 60, axis == 0 ? 60 : 220);
-			else
-				setRGB0(l, 70, 74, 90);
-			setXY2(l, sx[0], sy[0], sx[1], sy[1]);
-			addPrim(ot + otz, l);
-			l++;
+	static uint32_t gsxy[GRID_V][GRID_V];
+	static int32_t  gsz[GRID_V][GRID_V];
+	gte_SetRotMatrix(&cam->view);
+	gte_SetTransMatrix(&cam->view);
+	for (int j = 0; j < GRID_V; j++) {
+		for (int i = 0; i < GRID_V; i++) {
+			SVECTOR v = { (i - GRID_N) * GRID_STEP, 0, (j - GRID_N) * GRID_STEP, 0 };
+			gte_ldv0(&v);
+			gte_rtps();
+			__asm__ volatile("swc2 $14, 0(%0); swc2 $19, 0(%1)" :: "r"(&gsxy[j][i]), "r"(&gsz[j][i]) : "memory");
 		}
 	}
-	return (char *)l;
+	POLY_F4 *q = (POLY_F4 *)nextpri;
+	for (int j = 0; j < GRID_V - 1; j++) {
+		for (int i = 0; i < GRID_V - 1; i++) {
+			int32_t z0 = gsz[j][i], z1 = gsz[j][i + 1], z2 = gsz[j + 1][i], z3 = gsz[j + 1][i + 1];
+			if (z0 <= GRID_NEAR || z1 <= GRID_NEAR || z2 <= GRID_NEAR || z3 <= GRID_NEAR)
+				continue;
+			uint32_t s0 = gsxy[j][i], s1 = gsxy[j][i + 1], s2 = gsxy[j + 1][i], s3 = gsxy[j + 1][i + 1];
+			int x0 = (int16_t)(s0 & 0xffff), x1 = (int16_t)(s1 & 0xffff), x2 = (int16_t)(s2 & 0xffff), x3 = (int16_t)(s3 & 0xffff);
+			int y0 = (int16_t)(s0 >> 16), y1 = (int16_t)(s1 >> 16), y2 = (int16_t)(s2 >> 16), y3 = (int16_t)(s3 >> 16);
+			int xmin = x0, xmax = x0, ymin = y0, ymax = y0;
+			if (x1 < xmin) xmin = x1; if (x1 > xmax) xmax = x1;
+			if (x2 < xmin) xmin = x2; if (x2 > xmax) xmax = x2;
+			if (x3 < xmin) xmin = x3; if (x3 > xmax) xmax = x3;
+			if (y1 < ymin) ymin = y1; if (y1 > ymax) ymax = y1;
+			if (y2 < ymin) ymin = y2; if (y2 > ymax) ymax = y2;
+			if (y3 < ymin) ymin = y3; if (y3 > ymax) ymax = y3;
+			if (xmax < 0 || xmin >= SCREEN_XRES || ymax < 0 || ymin >= SCREEN_YRES)
+				continue;                                   /* off screen */
+			if (xmax - xmin > 1000 || ymax - ymin > 500)
+				continue;                                   /* too big for the GPU */
+			int otz = ((z0 + z1 + z2 + z3) * 3) >> (4 + OTZ_SHIFT);   /* same scale as the model */
+			if (otz >= OT_LEN) otz = OT_LEN - 1;
+			if (otz <= 0) continue;
+			setPolyF4(q);
+			if ((i + j) & 1)
+				setRGB0(q, 44, 76, 140);
+			else
+				setRGB0(q, 26, 46, 96);
+			*(uint32_t *)&q->x0 = s0;
+			*(uint32_t *)&q->x1 = s1;
+			*(uint32_t *)&q->x2 = s2;
+			*(uint32_t *)&q->x3 = s3;
+			addPrim(ot + otz, q);
+			q++;
+		}
+	}
+	return (char *)q;
 }
 
 /* Profiler bar: stages stacked top to bottom at the left edge, PROF_SCALE

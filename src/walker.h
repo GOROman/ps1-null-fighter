@@ -26,6 +26,8 @@ typedef struct {
 	uint8_t quad_cut[MAX_QUADS];
 	uint8_t tri_cut[MAX_CUT];     /* read by the renderer */
 	int16_t quad_edge[MAX_QUADS][4];
+	int8_t  quad_piece[MAX_QUADS];    /* cloth piece (connected grid) a cell belongs to */
+	int npieces;
 	int16_t edge_quad[MAX_EDGES][2];
 	int nquads, ncut;
 	int edge;            /* current edge index */
