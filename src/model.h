@@ -19,7 +19,16 @@ typedef struct {
 	uint16_t nverts, ntris, nbones, nanims, ntrans, nedges;
 	uint32_t off_verts, off_tris, off_bones, off_anims;
 	uint32_t off_ik, off_edges;     /* 0: table absent; edges: nedges x {uint16 a, b} */
-} ModelHeader;                      /* 40 bytes */
+	uint32_t off_quads;             /* cloth quads (ModelQuad), 0: none */
+	uint16_t nquads, pad3;
+} ModelHeader;                      /* 48 bytes */
+
+/* One cloth cell of the wire grid: its 4 corner vertices (ring order) and
+ * the two triangles that render it. */
+typedef struct {
+	uint16_t v[4];
+	uint16_t tri[2];
+} ModelQuad;                        /* 12 bytes */
 
 typedef struct {
 	int16_t  x, y, z;
@@ -95,6 +104,7 @@ typedef struct {
 	const ModelAnim   *anims;
 	const ModelIK     *ik;          /* NULL if absent */
 	const uint16_t    *edges;       /* wire overlay edges (vertex index pairs), NULL if absent */
+	const ModelQuad   *quads;       /* cloth cells, NULL if absent */
 	const uint8_t     *base;
 	int frame_size;                 /* bytes per animation frame */
 } Model;
@@ -111,6 +121,7 @@ static inline int model_open(Model *m, const void *data) {
 	m->anims = (const ModelAnim *)(m->base + h->off_anims);
 	m->ik    = h->off_ik ? (const ModelIK *)(m->base + h->off_ik) : (const ModelIK *)0;
 	m->edges = h->off_edges ? (const uint16_t *)(m->base + h->off_edges) : (const uint16_t *)0;
+	m->quads = h->off_quads ? (const ModelQuad *)(m->base + h->off_quads) : (const ModelQuad *)0;
 	m->frame_size = h->nbones * sizeof(ModelQuat) + h->ntrans * sizeof(ModelTrans);
 	return 0;
 }

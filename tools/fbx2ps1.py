@@ -451,7 +451,8 @@ def to_ps1_matrix(m):
 
 def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=None,
                   atlas_size=256, verbose=True, face_tex=False, face_min_y=0.78, dump_uv=None,
-                  front=(0, 0, 1), hidden_dist=0.0, double_sided=None, gen_skirt=False):
+                  front=(0, 0, 1), hidden_dist=0.0, double_sided=None, gen_skirt=False, rig_split=False,
+                  gen_body=False):
     """Decimate to target_tris (0 = keep) and optionally re-unwrap the UVs
     with xatlas, baking the source texture into the new atlas.  With
     face_tex the triangles above the neck line get their own atlas/texture
@@ -460,7 +461,7 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
     images (or None) indexed by the tris' tex id; verts/tris are in
     build_mesh format with an extra tex id per triangle."""
     from meshopt import (bake, decimate, reatlas as do_reatlas, vertex_normals, draw_uv_check, remove_hidden,
-                         quad_edges)
+                         quad_edges, plane_cut, split_by_bone)
     T = np.array([[verts[i][0] for i in t] for t in tris], dtype=np.int64)
     # corner UVs, converted to image convention (v = 0 at the top)
     cuv = np.array([[(verts[i][2][0], 1.0 - verts[i][2][1]) if verts[i][2] is not None else (0.0, 0.0)
@@ -525,6 +526,29 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
                 print("generated skirt: replaces %d triangles, y %.3f..%.3f hem %.3fx%.3f waist %.3fx%.3f" % (
                     int(sel.sum()), ylo, yhi, skirt_dims["rx0"], skirt_dims["rz0"], skirt_dims["rx1"], skirt_dims["rz1"]))
         T, cuv = T[keep], cuv[keep]
+    pos_bone = None
+    if rig_split:
+        # cut at the joint heights, then split into one shell per bone so
+        # the rigid parts never share vertices or overlap at the joints
+        import autorig as ar
+        R = ar.RIG
+        heights = [ymin + (H - ymin) * R[k] for k in ("knee_y", "hip_y", "elbow_y", "chest_y", "neck_y")]
+        P, T, cuv = plane_cut(P, T, cuv, heights)
+        cen = P[T].mean(axis=1)
+        tri_bone = ar.assign_bones(cen, H - ymin, T=None)
+        P, T, pos_bone = split_by_bone(P, T, tri_bone)
+        if verbose:
+            print("rig split: %d positions, %d triangles, %d parts" % (len(P), len(T), len(set(pos_bone.tolist()))))
+    body = None
+    if gen_body and pos_bone is not None and texture is not None:
+        import bodygen
+        head_b = ar.NAME["head"]
+        head_mask = pos_bone[T[:, 0]] == head_b
+        body = bodygen.generate_body(P, T, cuv, pos_bone, texture, verbose=verbose)
+        head_mask |= body[5]                            # + the hands
+        T, cuv = T[head_mask], cuv[head_mask]          # the original keeps only the head (and hands)
+        if target_tris:
+            target_tris = max(600, target_tris - len(body[2]))     # the head keeps at least 600
     # face region (above the neck line, mesh Y-up): protected from decimation
     head = P[:, 1] >= ymin + (H - ymin) * face_min_y
     # the face proper: front half of the head (hair stays in the body atlas)
@@ -532,8 +556,13 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
     centre = (P[head].min(axis=0) + P[head].max(axis=0)) * 0.5
     face = head & (((P - centre) @ fr) >= -0.01 * (H - ymin))
     importance = np.where(face, 10.0, 1.0) if face_tex else None
+    # the face below the hairline (eyes, mouth) is never decimated: moving
+    # those vertices would smear the texture that is baked through them
+    frozen = face & (P[:, 1] < ymin + (H - ymin) * 0.93) if face_tex else None
     if target_tris and target_tris < len(T):
-        P, T, keep = decimate(P, T, target_tris, verbose=verbose, importance=importance)
+        P, T, keep = decimate(P, T, target_tris, verbose=verbose, importance=importance, frozen=frozen)
+        if verbose and frozen is not None:
+            print("frozen face vertices: %d" % int(frozen.sum()))
         cuv = cuv[keep]
     N = vertex_normals(P, T)
     if reatlas:
@@ -561,8 +590,20 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
             if len(Tg) == 0:
                 textures.append(None)
                 continue
-            vmap, T2, uvs = do_reatlas(P, Tg, resolution=atlas_size)
-            baked = bake(uvs[T2], cuv[g], texture, size=atlas_size) if texture is not None else None
+            if body is not None and gi == 0:
+                # hair: packed into the HAIR_RECT quadrant of the generated body atlas
+                import bodygen
+                hu, hv, hw, hh = bodygen.HAIR_RECT
+                vmap, T2, uvs = do_reatlas(P, Tg, resolution=hw)
+                hair_img = bake(uvs[T2], cuv[g], texture, size=hw)
+                comp = body[3].copy()
+                comp[hv:hv + hh, hu:hu + hw] = np.asarray(hair_img)
+                from PIL import Image
+                baked = Image.fromarray(comp, "RGB")
+                uvs = (uvs * [hw, hh] + [hu, hv]) / bodygen.ATLAS
+            else:
+                vmap, T2, uvs = do_reatlas(P, Tg, resolution=atlas_size)
+                baked = bake(uvs[T2], cuv[g], texture, size=atlas_size) if texture is not None else None
             textures.append(baked)
             if dump_uv and baked is not None:
                 path = dump_uv if gi == 0 else dump_uv.replace(".png", "_face.png")
@@ -577,13 +618,22 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
                          for t, d in zip(T2, dsg)]
             if dsg.any():
                 edges += [(a + base, b + base) for a, b in quad_edges(P[vmap], T2[dsg])]
+        if body is not None:
+            Pg, vg, tg, _img, bones_g, _keep = body
+            pbase, vbase = len(P), len(new_verts)
+            P = np.vstack([P, Pg])
+            new_verts += [(i + pbase, n, uv) for (i, n, uv) in vg]
+            new_tris += [(a + vbase, b + vbase, c + vbase, 0, 0) for (a, b, c) in tg]
+            pos_bone = np.concatenate([pos_bone, bones_g])
+            if verbose:
+                print("generated body: %d verts, %d tris" % (len(vg), len(tg)))
         skirt_pos_start = len(P)
         if skirt_dims:
             from sprite import tartan
-            P, new_verts, new_tris, sk_edges = generate_skirt(P, new_verts, new_tris, skirt_dims, len(textures))
+            P, new_verts, new_tris, sk_edges, quads = generate_skirt(P, new_verts, new_tris, skirt_dims, len(textures))
             edges += sk_edges
             textures.append(tartan(SKIRT_TEX_SIZE))
-        return P, new_verts, new_tris, textures, edges, skirt_pos_start
+        return P, new_verts, new_tris, textures, edges, skirt_pos_start, pos_bone, quads
     # no re-atlas: unique (position, uv) per corner
     vmap = {}
     new_verts, new_tris = [], []
@@ -598,7 +648,7 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
                 new_verts.append((key[0], tuple(N[key[0]]), (cuv[t][c][0], 1.0 - cuv[t][c][1])))
             idx.append(i)
         new_tris.append(tuple(idx) + (0, 0))
-    return P, new_verts, new_tris, [None], [], len(P)
+    return P, new_verts, new_tris, [None], [], len(P), pos_bone, []
 
 
 TRI_DOUBLE = 1             # ModelTri.flags: double sided
@@ -641,11 +691,14 @@ def generate_skirt(P, new_verts, new_tris, dims, tex_id):
             row.append(len(new_verts) - 1)
         ring_idx.append(row)
     front_tris = []
+    quads = []                                  # (v0, v1, v2, v3, tri0, tri1) into new_verts / new_tris
     for r in range(R):
         for i in range(N):
             a, b = ring_idx[r][i], ring_idx[r][i + 1]
             c, d = ring_idx[r + 1][i], ring_idx[r + 1][i + 1]
+            t0 = len(new_tris) + len(front_tris)
             front_tris += [(a, b, c), (b, d, c)]
+            quads.append((a, b, d, c, t0, t0 + 1))
     for t in front_tris:
         new_tris.append(t + (tex_id, TRI_DOUBLE))
     edges = []
@@ -655,7 +708,7 @@ def generate_skirt(P, new_verts, new_tris, dims, tex_id):
     for r in range(R):
         for i in range(N):
             edges.append((ring_idx[r][i], ring_idx[r + 1][i]))
-    return np.array(pos), new_verts, new_tris, edges
+    return np.array(pos), new_verts, new_tris, edges, quads
 
 
 def build_ik_table(bone_names, parents, bone_bind_global, inv_bind, bind_local, front_fbx, rig, verbose=True):
@@ -734,7 +787,7 @@ def build_ik_table(bone_names, parents, bone_bind_global, inv_bind, bind_local, 
 
 def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=False, texture=None,
             autorig=False, front=(0, 0, 1), face_tex=False, dump_uv=None, hidden_dist=0.0,
-            double_sided=None, gen_skirt=False):
+            double_sided=None, gen_skirt=False, gen_body=False):
     global C_FBX_TO_PS1
     if scene.up_axis == 2:
         C_FBX_TO_PS1 = C_ZUP_TO_PS1 * np.array([[1], [scene.up_sign], [1]])
@@ -746,11 +799,15 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
     textures = [None]
     edges = []
     skirt_pos_start = len(positions)
+    pos_bone = None
+    quads = []
     if target_tris or reatlas or hidden_dist:
-        positions, verts, tris, textures, edges, skirt_pos_start = optimize_mesh(positions, verts, tris, target_tris, reatlas,
+        positions, verts, tris, textures, edges, skirt_pos_start, pos_bone, quads = optimize_mesh(positions, verts, tris, target_tris, reatlas,
                                                          texture, verbose=verbose, face_tex=face_tex,
                                                          dump_uv=dump_uv, front=front, hidden_dist=hidden_dist,
-                                                         double_sided=double_sided, gen_skirt=gen_skirt)
+                                                         double_sided=double_sided, gen_skirt=gen_skirt,
+                                                         rig_split=autorig and scene.static,
+                                                         gen_body=gen_body)
         if verbose:
             print("optimized mesh: %d verts, %d tris" % (len(verts), len(tris)))
     else:
@@ -764,6 +821,9 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
         Tpos = np.array([[verts[i][0] for i in t[:3]] for t in tris], dtype=np.int64)
         rig = {"H": H, "joints": ar.joint_positions(H), "assign": ar.assign_bones(Pw, H, T=Tpos),
                "names": [n for n, _ in ar.BONES], "parents": [p for _, p in ar.BONES]}
+        if pos_bone is not None:
+            # parts were split per bone in optimize_mesh: use that assignment
+            rig["assign"][:len(pos_bone)] = pos_bone
         rig["assign"][skirt_pos_start:] = ar.NAME["root"]      # generated skirt hangs from the hips
         if verbose:
             counts = np.bincount(rig["assign"], minlength=len(ar.BONES))
@@ -843,7 +903,7 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
     world_pos = [tf_mesh @ np.append(positions[v["pos_index"]], 1.0) for v in out_verts]
     world_pos = [c3 @ w[:3] for w in world_pos]
     out_tris = []
-    for (a, b_, c, tex, tflags) in tris:
+    for tid, (a, b_, c, tex, tflags) in enumerate(tris):
         pa, pb, pc = world_pos[a], world_pos[b_], world_pos[c]
         face_n = np.cross(pb - pa, pc - pa)
         # vertex normals in world space
@@ -863,7 +923,7 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
         bones = [out_verts[i]["bone"] for i in (a, b_, c)]
         fb = max(set(bones), key=bones.count)
         fn_local = c3 @ (inv_bind[fb][:3, :3] @ (c3.T @ fnw))
-        out_tris.append({"i": (a, b_, c), "bone": fb, "n": fn_local, "tex": tex, "flags": tflags})
+        out_tris.append({"i": (a, b_, c), "bone": fb, "n": fn_local, "tex": tex, "flags": tflags, "id": tid})
 
     # ---- sort vertices by bone, triangles by bone --------------------------
     order = sorted(range(len(out_verts)), key=lambda i: out_verts[i]["bone"])
@@ -873,6 +933,8 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
         t["i"] = tuple(remap[i] for i in t["i"])
     out_edges = [(remap[a], remap[b]) for a, b in edges]
     out_tris.sort(key=lambda t: t["bone"])
+    tri_final = {t["id"]: i for i, t in enumerate(out_tris)}
+    out_quads = [(remap[q[0]], remap[q[1]], remap[q[2]], remap[q[3]], tri_final[q[4]], tri_final[q[5]]) for q in quads]
 
     bone_vert_range = [[0, 0] for _ in range(nb)]
     for i, v in enumerate(out_verts):
@@ -981,7 +1043,7 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
         "bind_local": bind_local, "bone_vert_range": bone_vert_range,
         "bone_tri_range": bone_tri_range, "anims": anims,
         "trans_animated": trans_animated, "bone_names": bone_names,
-        "textures": textures, "rig": rig, "edges": out_edges,
+        "textures": textures, "rig": rig, "edges": out_edges, "quads": out_quads,
     }
 
 
@@ -1019,7 +1081,7 @@ def write_model_bin(model, path):
     def pad4(b):
         return b + b"\0" * (-len(b) % 4)
     vert_blob, tri_blob, bone_blob = pad4(vert_blob), pad4(tri_blob), pad4(bone_blob)
-    header_size = 40
+    header_size = 48
     off_verts = header_size
     off_tris = off_verts + len(vert_blob)
     off_bones = off_tris + len(tri_blob)
@@ -1070,12 +1132,17 @@ def write_model_bin(model, path):
     tail = header_size + len(vert_blob) + len(tri_blob) + len(bone_blob) + len(anim_blob) + sum(map(len, frame_blobs)) + len(ik_blob)
     edge_blob = b"\0" * (-tail % 4) + b"".join(struct.pack("<HH", a, b) for a, b in edges)
     off_edges = tail + (-tail % 4) if edges else 0
-    header = struct.pack("<4sHHHHHHIIIIII", MAGIC, len(verts), len(tris), nb, len(anims), len(trans_slots),
-                         len(edges), off_verts, off_tris, off_bones, off_anims, off_ik, off_edges)
+    quads = model.get("quads") or []
+    tail2 = tail + len(edge_blob)
+    quad_blob = b"\0" * (-tail2 % 4) + b"".join(struct.pack("<HHHHHH", *q) for q in quads)
+    off_quads = tail2 + (-tail2 % 4) if quads else 0
+    header = struct.pack("<4sHHHHHHIIIIIIIHH", MAGIC, len(verts), len(tris), nb, len(anims), len(trans_slots),
+                         len(edges), off_verts, off_tris, off_bones, off_anims, off_ik, off_edges,
+                         off_quads, len(quads), 0)
     assert len(header) == header_size
     with open(path, "wb") as f:
-        f.write(header + vert_blob + tri_blob + bone_blob + anim_blob + b"".join(frame_blobs) + ik_blob + edge_blob)
-    total = tail + len(edge_blob)
+        f.write(header + vert_blob + tri_blob + bone_blob + anim_blob + b"".join(frame_blobs) + ik_blob + edge_blob + quad_blob)
+    total = tail2 + len(quad_blob)
     print("wrote %s: %d verts, %d tris, %d bones, %d anims, %d bytes (anim data %d bytes)" % (
         path, len(verts), len(tris), nb, len(anims), total, sum(map(len, frame_blobs))))
 
@@ -1237,6 +1304,9 @@ def main():
                     help="with --skirt: replace the selected skirt by a generated pleated cone with its own "
                          "tartan texture (--out-skirt-tim)")
     ap.add_argument("--out-skirt-tim")
+    ap.add_argument("--gen-body", action="store_true",
+                    help="with --autorig --reatlas: rebuild everything but the head as measured lathes "
+                         "textured by projecting the original texture (tools/bodygen.py)")
     ap.add_argument("--skirt", dest="double_sided", type=float, nargs="+", metavar="F",
                     help="with --reatlas: Y0 Y1 [XMAX DMIN] (fractions of the height) select the skirt: "
                          "centroid height in Y0..Y1, |x| < XMAX (default 0.135), horizontal distance from "
@@ -1264,6 +1334,7 @@ def main():
                     target_tris=args.target_tris, reatlas=args.reatlas, texture=src_tex,
                     autorig=args.autorig, face_tex=args.face_tex, dump_uv=args.dump_uv,
                     hidden_dist=args.remove_hidden, double_sided=args.double_sided, gen_skirt=args.gen_skirt,
+                    gen_body=args.gen_body,
                     front={"+z": (0, 0, 1), "-z": (0, 0, -1), "+x": (1, 0, 0), "-x": (-1, 0, 0)}[args.front])
     textures = model["textures"]
     tex = textures[0] or args.texture

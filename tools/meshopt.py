@@ -25,10 +25,12 @@ def _face_normal(p0, p1, p2):
     return n / l if l > 0 else None
 
 
-def decimate(P, T, target_tris, verbose=True, importance=None):
+def decimate(P, T, target_tris, verbose=True, importance=None, frozen=None):
     """P: (n,3) float positions (modified copy returned), T: (m,3) int.
     importance: optional per-position weight (>1 protects a region, e.g. the
-    face, so its edges collapse last).
+    face, so its edges collapse last).  frozen: optional per-position mask;
+    edges touching a frozen position are never collapsed (keeps the eyes /
+    mouth geometry and their texture mapping intact).
     Returns (P2, T2, keep) where keep[i] is the index into T of the original
     triangle that survived as T2[i] (corner order preserved)."""
     P = P.astype(np.float64).copy()
@@ -104,6 +106,8 @@ def decimate(P, T, target_tris, verbose=True, importance=None):
 
     heap = []
     for (u, v) in edge_count:
+        if frozen is not None and (frozen[u] or frozen[v]):
+            continue
         cost, pos = edge_cost(u, v)
         heapq.heappush(heap, (cost, u, v, version[u], version[v], pos))
 
@@ -150,6 +154,8 @@ def decimate(P, T, target_tris, verbose=True, importance=None):
                 if x != v:
                     nbrs.add(int(x))
         for w in nbrs:
+            if frozen is not None and (frozen[v] or frozen[w]):
+                continue
             c2, p2 = edge_cost(v, w)
             heapq.heappush(heap, (c2, v, w, version[v], version[w], p2))
     keep = np.where(alive)[0]
@@ -296,6 +302,85 @@ def bake(new_uv_tris, old_uv_tris, src_img, size=256, dilate=4):
         cov |= fill
     out[~cov] = (128, 128, 128)
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
+
+
+# --------------------------------------------------------------------------
+# planar cuts + split into rigid parts
+# --------------------------------------------------------------------------
+def plane_cut(P, T, C, heights, eps=1e-6):
+    """Split every triangle crossing a horizontal plane y = h (for each h in
+    heights) so no triangle spans a joint.  C: per-corner attributes (m,3,k)
+    interpolated along with the positions.  Returns (P, T, C)."""
+    P = [np.asarray(p, dtype=np.float64) for p in P]
+    T = [tuple(int(x) for x in t) for t in T]
+    C = [np.asarray(c, dtype=np.float64) for c in C]
+    for h in heights:
+        newT, newC = [], []
+        cache = {}
+
+        def cut_point(a, b, ca, cb):
+            key = (min(a, b), max(a, b))
+            if key not in cache:
+                ya, yb = P[a][1], P[b][1]
+                t = (h - ya) / (yb - ya)
+                P.append(P[a] + (P[b] - P[a]) * t)
+                cache[key] = (len(P) - 1, t)
+            idx, t = cache[key]
+            return idx, ca + (cb - ca) * t
+
+        for t, c in zip(T, C):
+            side = [P[i][1] - h for i in t]
+            above = [k for k in range(3) if side[k] > eps]
+            below = [k for k in range(3) if side[k] < -eps]
+            if not above or not below:
+                newT.append(t)
+                newC.append(c)
+                continue
+            # one vertex alone on its side (the "apex"), two on the other
+            if len(above) == 1:
+                ai = above[0]
+            else:
+                ai = below[0]
+            bi, ci = (ai + 1) % 3, (ai + 2) % 3
+            A, B, Cc = t[ai], t[bi], t[ci]
+            cA, cB, cC = c[ai], c[bi], c[ci]
+            if abs(side[bi]) <= eps or abs(side[ci]) <= eps:
+                # the other vertex sits on the plane: single split
+                if abs(side[bi]) <= eps:
+                    m, cm = cut_point(A, Cc, cA, cC)
+                    newT += [(A, B, m), (m, B, Cc)]
+                    newC += [np.array([cA, cB, cm]), np.array([cm, cB, cC])]
+                else:
+                    m, cm = cut_point(A, B, cA, cB)
+                    newT += [(A, m, Cc), (m, B, Cc)]
+                    newC += [np.array([cA, cm, cC]), np.array([cm, cB, cC])]
+                continue
+            m1, cm1 = cut_point(A, B, cA, cB)
+            m2, cm2 = cut_point(A, Cc, cA, cC)
+            newT += [(A, m1, m2), (m1, B, Cc), (m1, Cc, m2)]
+            newC += [np.array([cA, cm1, cm2]), np.array([cm1, cB, cC]), np.array([cm1, cC, cm2])]
+        T, C = newT, newC
+    return np.array(P), np.array(T, dtype=np.int64), np.array(C)
+
+
+def split_by_bone(P, T, tri_bone):
+    """Give every (position, bone) pair its own vertex so the rigid parts
+    become separate shells that never share vertices (and never stretch
+    across a joint).  Returns (P, T, pos_bone)."""
+    P = np.asarray(P)
+    newP, newT, pos_bone = [], [], []
+    lookup = {}
+    for t, b in zip(T, tri_bone):
+        idx = []
+        for x in t:
+            key = (int(x), int(b))
+            if key not in lookup:
+                lookup[key] = len(newP)
+                newP.append(P[int(x)])
+                pos_bone.append(int(b))
+            idx.append(lookup[key])
+        newT.append(idx)
+    return np.array(newP), np.array(newT, dtype=np.int64), np.array(pos_bone, dtype=np.int64)
 
 
 # --------------------------------------------------------------------------

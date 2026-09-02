@@ -23,6 +23,7 @@ RIG = {
     "arm_min_x_u": 0.09,   # |x| beyond this (between elbow_y and neck_y) = upper arm
     "hand_min_y":  0.30,   # arms/hands are never below this
     "elbow_y":     0.58,
+    "wrist_y":     0.50,   # below this the hands keep the original mesh (--gen-body)
     "chest_y":     0.60,   # spine joint
     "neck_y":      0.78,   # head above this
 }

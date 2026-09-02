@@ -27,6 +27,7 @@ typedef struct {
 	int ntex;
 	int shading;
 	int tris_drawn;
+	const uint8_t *cut;          /* per model triangle: 1 = do not draw (cloth cut out); NULL = none */
 } Renderer;
 
 /* tims[i] may be NULL (unused slots fall back to slot 0) */

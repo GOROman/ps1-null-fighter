@@ -1,7 +1,8 @@
 /* NULL FIGHTER - skinned FBX character viewer for PlayStation 1
  *
  * Controls
- *   D-pad / left stick   orbit camera
+ *   D-pad                steer the monkey on the cloth grid (Dancing Eyes style)
+ *   Left stick           orbit camera
  *   Right stick up/down  move camera up / down
  *   SELECT + D-pad       up/down: move camera up / down, left/right: dolly
  *   Triangle / Cross     dolly in / out (distance)
@@ -127,21 +128,21 @@ static int dance_sin(int t, int period, int phase) {
  * returns 0 if nothing remains */
 static int clip_line_2d(int *x0, int *y0, int *x1, int *y1) {
 	const int xmin = -32, xmax = SCREEN_XRES + 32, ymin = -32, ymax = SCREEN_YRES + 32;
-	int64_t dx = *x1 - *x0, dy = *y1 - *y0;
-	int64_t t0 = 0, t1 = 4096;            /* parameter range, 4096 = 1.0 */
-	int64_t p[4] = { -dx, dx, -dy, dy };
-	int64_t q[4] = { *x0 - xmin, xmax - *x0, *y0 - ymin, ymax - *y0 };
+	int32_t dx = *x1 - *x0, dy = *y1 - *y0;
+	int32_t t0 = 0, t1 = 4096;            /* parameter range, 4096 = 1.0 */
+	int32_t p[4] = { -dx, dx, -dy, dy };
+	int32_t q[4] = { *x0 - xmin, xmax - *x0, *y0 - ymin, ymax - *y0 };
 	for (int i = 0; i < 4; i++) {
 		if (p[i] == 0) {
 			if (q[i] < 0) return 0;
 			continue;
 		}
-		int64_t t = (q[i] << 12) / p[i];
+		int32_t t = (q[i] << 12) / p[i];
 		if (p[i] < 0) { if (t > t1) return 0; if (t > t0) t0 = t; }
 		else          { if (t < t0) return 0; if (t < t1) t1 = t; }
 	}
-	int nx0 = *x0 + (int)((dx * t0) >> 12), ny0 = *y0 + (int)((dy * t0) >> 12);
-	int nx1 = *x0 + (int)((dx * t1) >> 12), ny1 = *y0 + (int)((dy * t1) >> 12);
+	int nx0 = *x0 + ((dx * t0) >> 12), ny0 = *y0 + ((dy * t0) >> 12);
+	int nx1 = *x0 + ((dx * t1) >> 12), ny1 = *y0 + ((dy * t1) >> 12);
 	*x0 = nx0; *y0 = ny0; *x1 = nx1; *y1 = ny1;
 	return 1;
 }
@@ -169,15 +170,15 @@ static char *draw_floor(const Camera *cam, uint32_t *ot, char *nextpri) {
 				if (c[k].vz < GRID_NEAR) {
 					int o = 1 - k;
 					int32_t t = ((GRID_NEAR - c[k].vz) << 12) / (c[o].vz - c[k].vz);   /* 0..4096 */
-					c[k].vx += (int32_t)(((int64_t)(c[o].vx - c[k].vx) * t) >> 12);
-					c[k].vy += (int32_t)(((int64_t)(c[o].vy - c[k].vy) * t) >> 12);
+					c[k].vx += (int32_t)(((int32_t)(c[o].vx - c[k].vx) * t) >> 12);
+					c[k].vy += (int32_t)(((int32_t)(c[o].vy - c[k].vy) * t) >> 12);
 					c[k].vz = GRID_NEAR;
 				}
 			}
 			int sx[2], sy[2];
 			for (int k = 0; k < 2; k++) {
-				sx[k] = CENTERX + (int)(((int64_t)c[k].vx * cam->fov) / c[k].vz);
-				sy[k] = CENTERY + (int)(((int64_t)c[k].vy * cam->fov) / c[k].vz);
+				sx[k] = CENTERX + (int)(((int32_t)c[k].vx * cam->fov) / c[k].vz);
+				sy[k] = CENTERY + (int)(((int32_t)c[k].vy * cam->fov) / c[k].vz);
 			}
 			/* the GPU drops primitives wider than 1023 / taller than 511, so
 			 * clip the 2D segment to (a little more than) the screen */
@@ -269,6 +270,9 @@ int main(void) {
 	int combo_used = 0;        /* START+SELECT fired: swallow the single-button releases */
 	int dance = 0;             /* IK mode: hip driven by sines instead of the d-pad */
 	int dance_t = 0;
+	int shy = 0;               /* frames left of the "cloth fell" reaction */
+	int clear_t = 0;           /* frames since the whole skirt was cut */
+	int seen_cuts = 0;
 	memset(&ik, 0, sizeof(ik));
 
 	init_graphics();
@@ -286,6 +290,7 @@ int main(void) {
 	renderer_init(&renderer, assets[cur_asset].tims);
 	walker_load_sprite(monkey_tim);
 	walker_reset(&walker, &model);
+	renderer.cut = walker.tri_cut;
 	model_yaw = assets[cur_asset].yaw;
 	camera_init(&cam);
 	prof_init();
@@ -330,24 +335,26 @@ int main(void) {
 			if (held & PAD_RIGHT) ddist -= 48;
 			if (held & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT))
 				combo_used = 1;               /* do not toggle shading on release */
-		} else if (ik.active) {
-			/* d-pad drives the hip bone (and stops the dance) */
-			if (held & (PAD_LEFT | PAD_RIGHT | PAD_UP | PAD_DOWN | PAD_L2 | PAD_R2))
-				dance = 0;
-			if (held & PAD_LEFT)  pose.hip_offset.vx -= 24;
-			if (held & PAD_RIGHT) pose.hip_offset.vx += 24;
-			if (held & PAD_UP)    pose.hip_offset.vy -= 24;   /* y is down */
-			if (held & PAD_DOWN)  pose.hip_offset.vy += 24;
-			if (held & PAD_L2)    pose.hip_offset.vz -= 24;
-			if (held & PAD_R2)    pose.hip_offset.vz += 24;
 		} else {
-			if (held & PAD_LEFT)  dyaw   -= 32;
-			if (held & PAD_RIGHT) dyaw   += 32;
-			if (held & PAD_UP)    dpitch += 24;
-			if (held & PAD_DOWN)  dpitch -= 24;
+			/* d-pad steers the monkey on the cloth grid (screen directions);
+			 * without a grid it orbits the camera */
+			if (model.hdr->nedges) {
+				walker.dir_x = (held & PAD_LEFT) ? -1 : (held & PAD_RIGHT) ? 1 : 0;
+				walker.dir_y = (held & PAD_UP) ? -1 : (held & PAD_DOWN) ? 1 : 0;
+			} else {
+				if (held & PAD_LEFT)  dyaw   -= 32;
+				if (held & PAD_RIGHT) dyaw   += 32;
+				if (held & PAD_UP)    dpitch += 24;
+				if (held & PAD_DOWN)  dpitch -= 24;
+			}
 		}
 		if (held & PAD_TRIANGLE) ddist -= 96;
 		if (held & PAD_CROSS)    ddist += 96;
+		if ((pressed & PAD_CROSS) && walker.nquads) {   /* reset the cloth */
+			walker_reset(&walker, &model);
+			renderer.cut = walker.tri_cut;
+			clear_t = 0;
+		}
 		if (held & PAD_SQUARE) dfov += 8;
 		if (held & PAD_CIRCLE) dfov -= 8;
 		if (held & PAD_L1) model_yaw += 32;
@@ -375,8 +382,29 @@ int main(void) {
 				ik.target[i].vx = ik.base[i].vx + ((90  * DANCE_SIN(300, ph + 512)) >> 12);
 				ik.target[i].vy = ik.base[i].vy + ((140 * DANCE_SIN(150, ph + 1024)) >> 12) - 60;
 				ik.target[i].vz = ik.base[i].vz + ((160 * DANCE_SIN(300, ph)) >> 12);
+				if (shy) {
+					/* cloth fell: hands rush to the front of the skirt */
+					int k = shy > 40 ? (60 - shy) * 4096 / 20 : shy * 4096 / 40;   /* ease in / out */
+					if (k > 4096) k = 4096;
+					VECTOR hip = vec(pose.world[model.ik->hip].t[0], pose.world[model.ik->hip].t[1],
+					                 pose.world[model.ik->hip].t[2]);
+					int side = i ? -1 : 1;
+					VECTOR goal = vec(hip.vx + side * 140, hip.vy + 250, hip.vz - 420);
+					ik.target[i].vx += ((goal.vx - ik.target[i].vx) * k) >> 12;
+					ik.target[i].vy += ((goal.vy - ik.target[i].vy) * k) >> 12;
+					ik.target[i].vz += ((goal.vz - ik.target[i].vz) * k) >> 12;
+				}
 			}
 			dance_t++;
+		}
+		if (walker.cut_event != seen_cuts) { seen_cuts = walker.cut_event; shy = 60; }
+		if (shy) shy--;
+		if (walker.nquads && walker.ncut >= walker.nquads) {
+			if (++clear_t > 240) {                      /* 4 s of CLEAR, then a new skirt */
+				walker_reset(&walker, &model);
+				renderer.cut = walker.tri_cut;
+				clear_t = 0;
+			}
 		}
 		if (!(held & (PAD_START | PAD_SELECT)))
 			combo_used = 0;
@@ -400,6 +428,7 @@ int main(void) {
 			renderer.shading = shading;
 			walker_load_sprite(monkey_tim);      /* renderer_init reloads VRAM */
 			walker_reset(&walker, &model);
+			renderer.cut = walker.tri_cut;
 			model_yaw = assets[cur_asset].yaw;
 			pose_init(&pose, &model, 0);
 		}
@@ -423,7 +452,7 @@ int main(void) {
 		/* ---- render ------------------------------------------------------ */
 		db_nextpri = render_model(&renderer, &model, &pose, &cam, db[db_active].ot, db_nextpri);
 		db_nextpri = draw_floor(&cam, db[db_active].ot, db_nextpri);
-		db_nextpri = walker_draw(&walker, &model, render_get_cache(), db[db_active].ot, db_nextpri);
+		db_nextpri = walker_draw(&walker, &model, &renderer, render_get_cache(), db[db_active].ot, db_nextpri);
 		db_nextpri = prof_draw(db[db_active].ot, db_nextpri);
 
 		const ModelAnim *a = &model.anims[pose.anim];
@@ -437,6 +466,9 @@ int main(void) {
 		FntPrint(-1, "TRIS %d  FPS %d  CPU %d HB  FOV %d\n", renderer.tris_drawn, fps,
 		         prof_stage[PROF_INPUT] + prof_stage[PROF_POSE] + prof_stage[PROF_VERTS] +
 		         prof_stage[PROF_PRIMS] + prof_stage[PROF_MISC], cam.fov);
+		if (walker.nquads)
+			FntPrint(-1, "CLOTH %d/%d %s\n", walker.ncut, walker.nquads,
+			         clear_t ? "  * CLEAR *" : "");
 		FntFlush(-1);
 		prof_mark(PROF_MISC);
 

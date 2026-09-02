@@ -23,6 +23,14 @@ const VCache *render_get_cache(void) { return vcache; }
 
 /* read NCLIP's result (MAC0) into a register without a memory clobber */
 #define gte_stopz_r(p) __asm__ volatile("mfc2 %0, $24" : "=r"(p))
+/* GTE result stores without the SDK's "memory" clobber (nothing reads the
+ * cache inside pass 1, so the compiler may keep its pointers in registers) */
+#define STSXY3(a, b, c) __asm__ volatile("swc2 $12, 0(%0); swc2 $13, 0(%1); swc2 $14, 0(%2)" :: "r"(a), "r"(b), "r"(c))
+#define STSZ3(a, b, c)  __asm__ volatile("swc2 $17, 0(%0); swc2 $18, 0(%1); swc2 $19, 0(%2)" :: "r"(a), "r"(b), "r"(c))
+#define STRGB3(a, b, c) __asm__ volatile("swc2 $20, 0(%0); swc2 $21, 0(%1); swc2 $22, 0(%2)" :: "r"(a), "r"(b), "r"(c))
+#define STSXY(a)        __asm__ volatile("swc2 $14, 0(%0)" :: "r"(a))
+#define STSZ(a)         __asm__ volatile("swc2 $19, 0(%0)" :: "r"(a))
+#define STRGB(a)        __asm__ volatile("swc2 $22, 0(%0)" :: "r"(a))
 
 /* light colour matrix: one directional light, ~0.42 intensity so that the
  * result stays near 128 (= neutral texture modulation) with some headroom */
@@ -62,6 +70,7 @@ void renderer_init(Renderer *r, const uint32_t *const tims[MAX_TEX]) {
 	}
 	r->shading = SHADE_GOURAUD;
 	r->tris_drawn = 0;
+	r->cut = 0;
 
 	gte_SetBackColor(52, 52, 56);
 	gte_SetColorMatrix(&color_mtx);
@@ -106,41 +115,44 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 			for (; i + 3 <= end; i += 3, v += 3, c += 3) {
 				gte_ldv3(&v[0].x, &v[1].x, &v[2].x);
 				gte_rtpt();
-				gte_stsxy3(&c[0].sxy, &c[1].sxy, &c[2].sxy);
-				gte_stsz3(&c[0].sz, &c[1].sz, &c[2].sz);
+				STSXY3(&c[0].sxy, &c[1].sxy, &c[2].sxy);
+				STSZ3(&c[0].sz, &c[1].sz, &c[2].sz);
 				gte_ldv3(&v[0].nx, &v[1].nx, &v[2].nx);
 				gte_nct();
-				gte_strgb3(&c[0].rgb, &c[1].rgb, &c[2].rgb);
+				STRGB3(&c[0].rgb, &c[1].rgb, &c[2].rgb);
 			}
 			for (; i < end; i++, v++, c++) {
 				gte_ldv0(&v->x);
 				gte_rtps();
-				gte_stsxy(&c->sxy);
-				gte_stsz(&c->sz);
+				STSXY(&c->sxy);
+				STSZ(&c->sz);
 				gte_ldv0(&v->nx);
 				gte_ncs();
-				gte_strgb(&c->rgb);
+				STRGB(&c->rgb);
 			}
 		} else {
 			for (; i + 3 <= end; i += 3, v += 3, c += 3) {
 				gte_ldv3(&v[0].x, &v[1].x, &v[2].x);
 				gte_rtpt();
-				gte_stsxy3(&c[0].sxy, &c[1].sxy, &c[2].sxy);
-				gte_stsz3(&c[0].sz, &c[1].sz, &c[2].sz);
+				STSXY3(&c[0].sxy, &c[1].sxy, &c[2].sxy);
+				STSZ3(&c[0].sz, &c[1].sz, &c[2].sz);
 			}
 			for (; i < end; i++, v++, c++) {
 				gte_ldv0(&v->x);
 				gte_rtps();
-				gte_stsxy(&c->sxy);
-				gte_stsz(&c->sz);
+				STSXY(&c->sxy);
+				STSZ(&c->sz);
 			}
 		}
 	}
+	__asm__ volatile("" ::: "memory");          /* pass 2 reads what the GTE stored */
 	prof_mark(PROF_VERTS);
 
 	/* ---- pass 2: build primitives --------------------------------------- */
 	const ModelTri *tri = m->tris;
 	const ModelTri *tri_end = tri + m->hdr->ntris;
+	static const uint8_t no_cut[4096];
+	const uint8_t *cut = r->cut ? r->cut : no_cut;
 	uint32_t clut_hi[MAX_TEX], tpage_hi[MAX_TEX];
 	for (int i = 0; i < MAX_TEX; i++) {
 		clut_hi[i]  = (uint32_t)r->clut[i] << 16;
@@ -150,6 +162,8 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 	if (r->shading == SHADE_GOURAUD) {
 		POLY_GT3 *pri = (POLY_GT3 *)nextpri;
 		for (; tri < tri_end; tri++) {
+			if (cut[tri - m->tris])
+				continue;
 			const int i0 = tri->i0;
 			int i1 = tri->i1, i2 = tri->i2;
 			const VCache *c0 = &vcache[i0], *c1 = &vcache[i1], *c2 = &vcache[i2];
@@ -188,6 +202,8 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 		POLY_FT3 *pri = (POLY_FT3 *)nextpri;
 		int cur_bone = -1;
 		for (; tri < tri_end; tri++) {
+			if (cut[tri - m->tris])
+				continue;
 			const int i0 = tri->i0;
 			int i1 = tri->i1, i2 = tri->i2;
 			const VCache *c0 = &vcache[i0], *c1 = &vcache[i1], *c2 = &vcache[i2];
