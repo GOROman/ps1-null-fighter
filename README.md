@@ -1,6 +1,10 @@
 # NULL FIGHTER
 
-初代 PlayStation 向けのキャラクタービューア兼ミニゲーム。PSn00bSDK で書かれていて、DuckStation で 60fps で動きます。
+![NULL FIGHTER](docs/screenshot.png)
+
+初代 PlayStation 向けのキャラクタービューア兼ミニゲーム。PSn00bSDK で書かれていて、60fps で動きます。
+
+**このリポジトリのコードとツールは、すべて Claude Code（Claude Fable 5.1）だけで書かれています。人間は 1 文字もコードを書いていません。** 人間がやったのは日本語で要望を出すこと、画面を見て感想を返すこと、素材（FBX）を渡すことだけです。
 
 - FBX のキャラクター（スキニング＋アニメ付き）を PS1 用のリジッドスキンモデルに変換して表示
 - ボーンのない静的メッシュ（Tripo 生成の制服キャラ）を自動セグメント化してリグとアニメを合成
@@ -16,11 +20,10 @@ cmake --preset default .      # PSN00BSDK_LIBS が設定されていること
 cmake --build ./build         # build/nullfighter.cue ができる
 ```
 
-このリポジトリでは `build.sh` がリモートのビルドマシン（`BUILD_HOST`、既定 `mac-studio.local`）に rsync してビルドし、CD イメージを `build/` に持ち帰ります。`run.sh` は DuckStation でそのイメージを起動します。
+このリポジトリでは `build.sh` がリモートのビルドマシン（`BUILD_HOST`、既定 `mac-studio.local`）に rsync してビルドし、CD イメージ（`build/nullfighter.cue`）を `build/` に持ち帰ります。
 
 ```sh
 ./build.sh
-./run.sh
 ```
 
 ## 操作
