@@ -16,9 +16,9 @@
 
 typedef struct {
 	char     magic[4];
-	uint16_t nverts, ntris, nbones, nanims, ntrans, pad;
+	uint16_t nverts, ntris, nbones, nanims, ntrans, nedges;
 	uint32_t off_verts, off_tris, off_bones, off_anims;
-	uint32_t off_ik, reserved;      /* off_ik = 0: no IK table */
+	uint32_t off_ik, off_edges;     /* 0: table absent; edges: nedges x {uint16 a, b} */
 } ModelHeader;                      /* 40 bytes */
 
 typedef struct {
@@ -33,8 +33,11 @@ typedef struct {
 	uint8_t  bone;                  /* bone whose space nx/ny/nz live in */
 	uint8_t  tex;                   /* texture slot (0 = body, 1 = face) */
 	int16_t  nx, ny, nz;            /* face normal for flat shading */
-	uint16_t pad2;
+	uint8_t  flags;                 /* TRI_FLAG_* */
+	uint8_t  pad2;
 } ModelTri;                         /* 16 bytes */
+
+#define TRI_FLAG_DOUBLE_SIDED 1     /* draw the back face too (winding reversed) */
 
 typedef struct {
 	int8_t   parent;                /* -1 = root */
@@ -91,6 +94,7 @@ typedef struct {
 	const ModelBone   *bones;
 	const ModelAnim   *anims;
 	const ModelIK     *ik;          /* NULL if absent */
+	const uint16_t    *edges;       /* wire overlay edges (vertex index pairs), NULL if absent */
 	const uint8_t     *base;
 	int frame_size;                 /* bytes per animation frame */
 } Model;
@@ -106,6 +110,7 @@ static inline int model_open(Model *m, const void *data) {
 	m->bones = (const ModelBone *)(m->base + h->off_bones);
 	m->anims = (const ModelAnim *)(m->base + h->off_anims);
 	m->ik    = h->off_ik ? (const ModelIK *)(m->base + h->off_ik) : (const ModelIK *)0;
+	m->edges = h->off_edges ? (const uint16_t *)(m->base + h->off_edges) : (const uint16_t *)0;
 	m->frame_size = h->nbones * sizeof(ModelQuat) + h->ntrans * sizeof(ModelTrans);
 	return 0;
 }

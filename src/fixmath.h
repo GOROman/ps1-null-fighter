@@ -36,8 +36,9 @@ static inline int32_t vlen(VECTOR a) { return (int32_t)isqrt32((uint32_t)vdot(a,
 static inline VECTOR vnorm(VECTOR a) {
 	int32_t l = vlen(a);
 	if (l == 0) return vec(0, 0, 0);
-	return vec((int32_t)(((int64_t)a.vx << 12) / l), (int32_t)(((int64_t)a.vy << 12) / l),
-	           (int32_t)(((int64_t)a.vz << 12) / l));
+	/* keep the shifted components inside 32 bits (positions < 2^19) */
+	while (l > 0x40000) { a.vx >>= 1; a.vy >>= 1; a.vz >>= 1; l >>= 1; }
+	return vec((a.vx << 12) / l, (a.vy << 12) / l, (a.vz << 12) / l);
 }
 /* cross product of two 4096-scaled vectors, result 4096-scaled */
 static inline VECTOR vcross(VECTOR a, VECTOR b) {

@@ -301,7 +301,7 @@ def bake(new_uv_tris, old_uv_tris, src_img, size=256, dilate=4):
 # --------------------------------------------------------------------------
 # hidden surface removal
 # --------------------------------------------------------------------------
-def remove_hidden(P, T, max_dist, verbose=True):
+def remove_hidden(P, T, max_dist, verbose=True, occluders=None):
     """Drop triangles that are covered by another surface close in front of
     them (skirt under the jacket, body under clothes...): a ray from the
     centroid along the face normal hits another triangle within max_dist.
@@ -327,6 +327,8 @@ def remove_hidden(P, T, max_dist, verbose=True):
         det = np.einsum("ij,ij->i", E1, pvec)
         valid = np.abs(det) > 1e-12
         valid[i] = False
+        if occluders is not None:
+            valid &= occluders
         inv = np.zeros(len(T))
         inv[valid] = 1.0 / det[valid]
         tvec = o - A
@@ -342,6 +344,64 @@ def remove_hidden(P, T, max_dist, verbose=True):
     if verbose:
         print("remove_hidden: dropped %d of %d triangles" % (int((~keep).sum()), len(T)))
     return keep
+
+
+# --------------------------------------------------------------------------
+# triangles -> quad edges
+# --------------------------------------------------------------------------
+def quad_edges(P, T):
+    """Greedily pair adjacent triangles into quads (most coplanar, squarest
+    first) and return the edge list without the removed diagonals.
+    T: (m,3) vertex indices (any numbering); edges are returned as (a, b)
+    tuples of those indices."""
+    P = np.asarray(P, dtype=np.float64)
+    T = np.asarray(T)
+    N = np.cross(P[T[:, 1]] - P[T[:, 0]], P[T[:, 2]] - P[T[:, 0]])
+    L = np.linalg.norm(N, axis=1)
+    N = N / np.where(L > 0, L, 1)[:, None]
+    owners = {}
+    for ti, t in enumerate(T):
+        for k in range(3):
+            a, b = int(t[k]), int(t[(k + 1) % 3])
+            owners.setdefault((min(a, b), max(a, b)), []).append(ti)
+
+    def quad_score(e, t0, t1):
+        # opposite corners of the two triangles
+        c0 = [int(x) for x in T[t0] if int(x) not in e][0]
+        c1 = [int(x) for x in T[t1] if int(x) not in e][0]
+        quad = [e[0], c0, e[1], c1]
+        angles = []
+        for i in range(4):
+            a, b, c = P[quad[i - 1]], P[quad[i]], P[quad[(i + 1) % 4]]
+            u, v = a - b, c - b
+            lu, lv = np.linalg.norm(u), np.linalg.norm(v)
+            if lu == 0 or lv == 0:
+                return None
+            angles.append(np.degrees(np.arccos(np.clip(np.dot(u, v) / (lu * lv), -1, 1))))
+        if max(angles) > 178:            # would not be convex
+            return None
+        squareness = sum(abs(a - 90) for a in angles) / 4
+        planarity = np.degrees(np.arccos(np.clip(np.dot(N[t0], N[t1]), -1, 1)))
+        return squareness + 2 * planarity
+
+    cands = []
+    for e, ts in owners.items():
+        if len(ts) == 2:
+            sc = quad_score(e, ts[0], ts[1])
+            if sc is not None:
+                cands.append((sc, e, ts[0], ts[1]))
+    cands.sort()
+    paired = set()
+    removed = set()
+    for sc, e, t0, t1 in cands:
+        if t0 in paired or t1 in paired:
+            continue
+        paired.update((t0, t1))
+        removed.add(e)
+    edges = [e for e in owners if e not in removed]
+    print("quad_edges: %d triangles -> %d quads + %d triangles, %d edges" % (
+        len(T), len(paired) // 2, len(T) - len(paired), len(edges)))
+    return edges
 
 
 # --------------------------------------------------------------------------

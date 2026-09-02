@@ -451,7 +451,7 @@ def to_ps1_matrix(m):
 
 def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=None,
                   atlas_size=256, verbose=True, face_tex=False, face_min_y=0.78, dump_uv=None,
-                  front=(0, 0, 1), hidden_dist=0.0, double_sided=None):
+                  front=(0, 0, 1), hidden_dist=0.0, double_sided=None, gen_skirt=False):
     """Decimate to target_tris (0 = keep) and optionally re-unwrap the UVs
     with xatlas, baking the source texture into the new atlas.  With
     face_tex the triangles above the neck line get their own atlas/texture
@@ -459,15 +459,71 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
     (positions, verts, tris, textures) where textures is a list of baked
     images (or None) indexed by the tris' tex id; verts/tris are in
     build_mesh format with an extra tex id per triangle."""
-    from meshopt import bake, decimate, reatlas as do_reatlas, vertex_normals, draw_uv_check, remove_hidden
+    from meshopt import (bake, decimate, reatlas as do_reatlas, vertex_normals, draw_uv_check, remove_hidden,
+                         quad_edges)
     T = np.array([[verts[i][0] for i in t] for t in tris], dtype=np.int64)
     # corner UVs, converted to image convention (v = 0 at the top)
     cuv = np.array([[(verts[i][2][0], 1.0 - verts[i][2][1]) if verts[i][2] is not None else (0.0, 0.0)
                      for i in t] for t in tris])
     P = positions
     ymin, H = P[:, 1].min(), P[:, 1].max()
+
+    def skirt_mask(T_, covered=None):
+        """The visible skirt: every corner in the height band, near the body
+        axis sideways (excludes the forearms) but outside the legs' radius.
+        With `covered` (triangles that have another surface up to 6% of the
+        height in front of them) the skirt top tucked under the jacket is
+        taken too, up to SKIRT_WAIST + 0.02."""
+        if not double_sided:
+            return np.zeros(len(T_), dtype=bool)
+        y0, y1 = double_sided[0], double_sided[1]
+        xmax = double_sided[2] if len(double_sided) > 2 else 0.135
+        dmin = double_sided[3] if len(double_sided) > 3 else 0.07
+        cen = (P[T_].mean(axis=1) - [0, ymin, 0]) / (H - ymin)
+        dd = np.hypot(cen[:, 0], cen[:, 2])
+        vy = (P[T_][:, :, 1] - ymin) / (H - ymin)
+        lateral = (np.abs(cen[:, 0]) < xmax) & (dd > dmin)
+        # long slivers of the thighs whose centroid falls in the band must
+        # not be taken: every corner has to be inside
+        inside = (vy >= y0 - 0.02).all(axis=1) & (vy <= y1 + 0.02).all(axis=1)
+        sel = inside & (cen[:, 1] >= y0) & (cen[:, 1] <= y1) & lateral
+        if covered is not None:
+            top = (vy >= y1 - 0.04).all(axis=1) & (vy <= SKIRT_WAIST + 0.02).all(axis=1)
+            sel |= top & lateral & covered
+        return sel
+
+    skirt_dims = None
     if hidden_dist > 0:
         keep = remove_hidden(P, T, hidden_dist * (H - ymin), verbose=verbose)
+        if gen_skirt and double_sided:
+            # the original skirt is replaced by a generated one, so it must not
+            # hide anything: find it (thighs under it are gone after pass 1),
+            # then redo the removal with the skirt excluded as an occluder
+            # occluders for the "under the jacket" test: not the hands/arms
+            body = (np.abs(P[T][:, :, 0]) < 0.15 * (H - ymin)).all(axis=1)
+            covered = ~remove_hidden(P, T, 0.06 * (H - ymin), verbose=False, occluders=body)
+            sel = skirt_mask(T, covered)
+            keep = remove_hidden(P, T, hidden_dist * (H - ymin), verbose=verbose, occluders=keep & ~sel)
+            keep &= ~sel
+            cs = P[T[sel]].mean(axis=1)
+            y0, y1 = double_sided[0], double_sided[1]
+            ylo, yhi = ymin + (H - ymin) * (y0 + 0.01), ymin + (H - ymin) * max(y1, SKIRT_WAIST)
+            span = (H - ymin) * 0.05
+            hem = cs[cs[:, 1] < ylo + span]
+            top = cs[cs[:, 1] > yhi - span]
+            if len(hem) < 3: hem = cs
+            if len(top) < 3: top = cs
+            rx0, rz0 = np.percentile(np.abs(hem[:, 0]), 95), np.percentile(np.abs(hem[:, 2]), 95)
+            rx1, rz1 = np.percentile(np.abs(top[:, 0]), 95) * 0.9, np.percentile(np.abs(top[:, 2]), 95) * 0.9
+            # the measured centroids sit inside the pleats and under-estimate
+            # the radii: the waist is at least 80% of the hem, the hem flares
+            # at least 30% beyond the waist
+            rx1, rz1 = max(rx1, rx0 * 0.8), max(rz1, rz0 * 0.8)
+            skirt_dims = {"y0": ylo, "y1": yhi, "rx1": rx1, "rz1": rz1,
+                          "rx0": max(rx0, rx1 * 1.3), "rz0": max(rz0, rz1 * 1.3)}
+            if verbose:
+                print("generated skirt: replaces %d triangles, y %.3f..%.3f hem %.3fx%.3f waist %.3fx%.3f" % (
+                    int(sel.sum()), ylo, yhi, skirt_dims["rx0"], skirt_dims["rz0"], skirt_dims["rx1"], skirt_dims["rz1"]))
         T, cuv = T[keep], cuv[keep]
     # face region (above the neck line, mesh Y-up): protected from decimation
     head = P[:, 1] >= ymin + (H - ymin) * face_min_y
@@ -488,16 +544,18 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
             groups = [~f, f]
             if verbose:
                 print("face texture: %d triangles" % int(f.sum()))
-        # double sided region (skirt): triangles whose centroid lies in the
-        # given height band (fractions of the height) near the body axis
+        # the skirt as its own object: centroid in the height band (fractions
+        # of the height), close to the body axis sideways (excludes the
+        # forearms) but not inside the legs' radius (the thighs under the
+        # skirt are already gone after remove_hidden).  Skirt triangles are
+        # made double sided and their quad edges are exported.
         ds = np.zeros(len(T), dtype=bool)
-        if double_sided:
-            cen = P[T].mean(axis=1)
-            cy = (cen[:, 1] - ymin) / (H - ymin)
-            ds = (cy >= double_sided[0]) & (cy <= double_sided[1]) & (np.abs(cen[:, 0]) < 0.14 * (H - ymin))
+        if double_sided and not skirt_dims:
+            ds = skirt_mask(T)
             if verbose:
-                print("double sided: %d triangles" % int(ds.sum()))
+                print("skirt (double sided): %d triangles" % int(ds.sum()))
         new_verts, new_tris, textures = [], [], []
+        edges = []                         # (a, b) into new_verts: quad edges of the double sided region
         for gi, g in enumerate(groups):
             Tg = T[g]
             if len(Tg) == 0:
@@ -512,22 +570,20 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
             base = len(new_verts)
             new_verts += [(int(vmap[i]), tuple(N[vmap[i]]), (float(uvs[i][0]), 1.0 - float(uvs[i][1])))
                           for i in range(len(vmap))]
-            new_tris += [tuple(int(x) + base for x in t) + (gi,) for t in T2]
-            # back faces: reversed winding on copies of the vertices with flipped normals
             dsg = ds[g]
+            # double sided triangles carry a flag (the renderer flips the
+            # winding of back faces) instead of duplicated geometry
+            new_tris += [tuple(int(x) + base for x in t) + (gi, int(TRI_DOUBLE) if d else 0)
+                         for t, d in zip(T2, dsg)]
             if dsg.any():
-                back = {}
-                for t in T2[dsg]:
-                    idx = []
-                    for x in t:
-                        x = int(x)
-                        if x not in back:
-                            back[x] = len(new_verts)
-                            v = new_verts[base + x]
-                            new_verts.append((v[0], tuple(-c for c in v[1]), v[2]))
-                        idx.append(back[x])
-                    new_tris.append((idx[0], idx[2], idx[1], gi))
-        return P, new_verts, new_tris, textures
+                edges += [(a + base, b + base) for a, b in quad_edges(P[vmap], T2[dsg])]
+        skirt_pos_start = len(P)
+        if skirt_dims:
+            from sprite import tartan
+            P, new_verts, new_tris, sk_edges = generate_skirt(P, new_verts, new_tris, skirt_dims, len(textures))
+            edges += sk_edges
+            textures.append(tartan(SKIRT_TEX_SIZE))
+        return P, new_verts, new_tris, textures, edges, skirt_pos_start
     # no re-atlas: unique (position, uv) per corner
     vmap = {}
     new_verts, new_tris = [], []
@@ -541,8 +597,65 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
                 vmap[key] = i
                 new_verts.append((key[0], tuple(N[key[0]]), (cuv[t][c][0], 1.0 - cuv[t][c][1])))
             idx.append(i)
-        new_tris.append(tuple(idx) + (0,))
-    return P, new_verts, new_tris, [None]
+        new_tris.append(tuple(idx) + (0, 0))
+    return P, new_verts, new_tris, [None], [], len(P)
+
+
+TRI_DOUBLE = 1             # ModelTri.flags: double sided
+SKIRT_WAIST = 0.53         # generated skirt reaches up to here (under the jacket)
+SKIRT_TEX_SIZE = 128
+SKIRT_TEX_V0 = 64          # texel row where the skirt texture starts in its page (below the sprites)
+SKIRT_SEGMENTS = 24
+SKIRT_ROWS = 3
+
+
+def generate_skirt(P, new_verts, new_tris, dims, tex_id):
+    """Elliptical, slightly pleated cone of SKIRT_SEGMENTS x SKIRT_ROWS quads
+    between the measured hem and waist.  Double sided; returns the quad
+    edge list (front side).  UVs tile the tartan every 4 segments."""
+    N, R = SKIRT_SEGMENTS, SKIRT_ROWS
+    period = 4                                  # segments per texture repeat
+    pos = list(P)
+    base = len(new_verts)
+    ring_idx = []                               # [row][seg] -> new vertex index
+    for r in range(R + 1):
+        f = r / R                               # 0 = waist, 1 = hem
+        y = dims["y1"] + (dims["y0"] - dims["y1"]) * f
+        rx = dims["rx1"] + (dims["rx0"] - dims["rx1"]) * f
+        rz = dims["rz1"] + (dims["rz0"] - dims["rz1"]) * f
+        row = []
+        for i in range(N + 1):                  # N+1: seam vertex duplicated for UVs
+            k = i % N
+            a = 2 * math.pi * k / N
+            pleat = 1.0 - 0.06 * f * (k % 2)    # alternate segments tuck in towards the hem
+            x, z = rx * pleat * math.cos(a), rz * pleat * math.sin(a)
+            n = np.array([math.cos(a) / max(rx, 1e-6), 0.0, math.sin(a) / max(rz, 1e-6)])
+            n = n / np.linalg.norm(n)
+            pos.append(np.array([x, y, z]))
+            u = ((i % period) * (SKIRT_TEX_SIZE // period)) if i % period or i == 0 else SKIRT_TEX_SIZE
+            if i % period == 0 and i > 0:
+                u = SKIRT_TEX_SIZE               # right edge of the repeat
+            u = min(u, SKIRT_TEX_SIZE - 1)
+            v = SKIRT_TEX_V0 + f * (SKIRT_TEX_SIZE - 1)
+            new_verts.append((len(pos) - 1, tuple(n), (u / 255.0, 1.0 - v / 255.0)))
+            row.append(len(new_verts) - 1)
+        ring_idx.append(row)
+    front_tris = []
+    for r in range(R):
+        for i in range(N):
+            a, b = ring_idx[r][i], ring_idx[r][i + 1]
+            c, d = ring_idx[r + 1][i], ring_idx[r + 1][i + 1]
+            front_tris += [(a, b, c), (b, d, c)]
+    for t in front_tris:
+        new_tris.append(t + (tex_id, TRI_DOUBLE))
+    edges = []
+    for r in range(R + 1):
+        for i in range(N):
+            edges.append((ring_idx[r][i], ring_idx[r][i + 1]))
+    for r in range(R):
+        for i in range(N):
+            edges.append((ring_idx[r][i], ring_idx[r + 1][i]))
+    return np.array(pos), new_verts, new_tris, edges
 
 
 def build_ik_table(bone_names, parents, bone_bind_global, inv_bind, bind_local, front_fbx, rig, verbose=True):
@@ -621,7 +734,7 @@ def build_ik_table(bone_names, parents, bone_bind_global, inv_bind, bind_local, 
 
 def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=False, texture=None,
             autorig=False, front=(0, 0, 1), face_tex=False, dump_uv=None, hidden_dist=0.0,
-            double_sided=None):
+            double_sided=None, gen_skirt=False):
     global C_FBX_TO_PS1
     if scene.up_axis == 2:
         C_FBX_TO_PS1 = C_ZUP_TO_PS1 * np.array([[1], [scene.up_sign], [1]])
@@ -631,15 +744,17 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
         print("world up axis: %s%s (UnitScaleFactor %g)" % ("+" if scene.up_sign > 0 else "-", "XYZ"[scene.up_axis], scene.unit_scale))
     positions, verts, tris = build_mesh(scene)
     textures = [None]
+    edges = []
+    skirt_pos_start = len(positions)
     if target_tris or reatlas or hidden_dist:
-        positions, verts, tris, textures = optimize_mesh(positions, verts, tris, target_tris, reatlas,
+        positions, verts, tris, textures, edges, skirt_pos_start = optimize_mesh(positions, verts, tris, target_tris, reatlas,
                                                          texture, verbose=verbose, face_tex=face_tex,
                                                          dump_uv=dump_uv, front=front, hidden_dist=hidden_dist,
-                                                         double_sided=double_sided)
+                                                         double_sided=double_sided, gen_skirt=gen_skirt)
         if verbose:
             print("optimized mesh: %d verts, %d tris" % (len(verts), len(tris)))
     else:
-        tris = [tuple(t) + (0,) for t in tris]
+        tris = [tuple(t) + (0, 0) for t in tris]
     rig = None
     if autorig and scene.static:
         import autorig as ar
@@ -649,6 +764,7 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
         Tpos = np.array([[verts[i][0] for i in t[:3]] for t in tris], dtype=np.int64)
         rig = {"H": H, "joints": ar.joint_positions(H), "assign": ar.assign_bones(Pw, H, T=Tpos),
                "names": [n for n, _ in ar.BONES], "parents": [p for _, p in ar.BONES]}
+        rig["assign"][skirt_pos_start:] = ar.NAME["root"]      # generated skirt hangs from the hips
         if verbose:
             counts = np.bincount(rig["assign"], minlength=len(ar.BONES))
             print("autorig: height %.3f, vertices per bone: %s" % (
@@ -727,7 +843,7 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
     world_pos = [tf_mesh @ np.append(positions[v["pos_index"]], 1.0) for v in out_verts]
     world_pos = [c3 @ w[:3] for w in world_pos]
     out_tris = []
-    for (a, b_, c, tex) in tris:
+    for (a, b_, c, tex, tflags) in tris:
         pa, pb, pc = world_pos[a], world_pos[b_], world_pos[c]
         face_n = np.cross(pb - pa, pc - pa)
         # vertex normals in world space
@@ -747,7 +863,7 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
         bones = [out_verts[i]["bone"] for i in (a, b_, c)]
         fb = max(set(bones), key=bones.count)
         fn_local = c3 @ (inv_bind[fb][:3, :3] @ (c3.T @ fnw))
-        out_tris.append({"i": (a, b_, c), "bone": fb, "n": fn_local, "tex": tex})
+        out_tris.append({"i": (a, b_, c), "bone": fb, "n": fn_local, "tex": tex, "flags": tflags})
 
     # ---- sort vertices by bone, triangles by bone --------------------------
     order = sorted(range(len(out_verts)), key=lambda i: out_verts[i]["bone"])
@@ -755,6 +871,7 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
     out_verts = [out_verts[i] for i in order]
     for t in out_tris:
         t["i"] = tuple(remap[i] for i in t["i"])
+    out_edges = [(remap[a], remap[b]) for a, b in edges]
     out_tris.sort(key=lambda t: t["bone"])
 
     bone_vert_range = [[0, 0] for _ in range(nb)]
@@ -864,7 +981,7 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
         "bind_local": bind_local, "bone_vert_range": bone_vert_range,
         "bone_tri_range": bone_tri_range, "anims": anims,
         "trans_animated": trans_animated, "bone_names": bone_names,
-        "textures": textures, "rig": rig,
+        "textures": textures, "rig": rig, "edges": out_edges,
     }
 
 
@@ -884,8 +1001,9 @@ def write_model_bin(model, path):
                     clamp16(v["n"][0] * FIX_ONE), clamp16(v["n"][1] * FIX_ONE), clamp16(v["n"][2] * FIX_ONE),
                     v["u"], v["v"]) for v in verts)
     tri_blob = b"".join(
-        struct.pack("<HHHBBhhhH", t["i"][0], t["i"][1], t["i"][2], t["bone"], t["tex"],
-                    clamp16(t["n"][0] * FIX_ONE), clamp16(t["n"][1] * FIX_ONE), clamp16(t["n"][2] * FIX_ONE), 0)
+        struct.pack("<HHHBBhhhBB", t["i"][0], t["i"][1], t["i"][2], t["bone"], t["tex"],
+                    clamp16(t["n"][0] * FIX_ONE), clamp16(t["n"][1] * FIX_ONE), clamp16(t["n"][2] * FIX_ONE),
+                    t.get("flags", 0), 0)
         for t in tris)
     bone_blob = b""
     for b in range(nb):
@@ -947,12 +1065,17 @@ def write_model_bin(model, path):
                                        clamp16(po[0] * FIX_ONE), clamp16(po[1] * FIX_ONE), clamp16(po[2] * FIX_ONE))
         assert len(ik_blob) == 12 + 16 * 4
         ik_blob = pad_ik + ik_blob
-    header = struct.pack("<4sHHHHHHIIIIII", MAGIC, len(verts), len(tris), nb, len(anims), len(trans_slots), 0,
-                         off_verts, off_tris, off_bones, off_anims, off_ik, 0)
+    # edge list (uint16 pairs) for the wire overlay / edge walker
+    edges = model.get("edges") or []
+    tail = header_size + len(vert_blob) + len(tri_blob) + len(bone_blob) + len(anim_blob) + sum(map(len, frame_blobs)) + len(ik_blob)
+    edge_blob = b"\0" * (-tail % 4) + b"".join(struct.pack("<HH", a, b) for a, b in edges)
+    off_edges = tail + (-tail % 4) if edges else 0
+    header = struct.pack("<4sHHHHHHIIIIII", MAGIC, len(verts), len(tris), nb, len(anims), len(trans_slots),
+                         len(edges), off_verts, off_tris, off_bones, off_anims, off_ik, off_edges)
     assert len(header) == header_size
     with open(path, "wb") as f:
-        f.write(header + vert_blob + tri_blob + bone_blob + anim_blob + b"".join(frame_blobs) + ik_blob)
-    total = header_size + len(vert_blob) + len(tri_blob) + len(bone_blob) + len(anim_blob) + sum(map(len, frame_blobs)) + len(ik_blob)
+        f.write(header + vert_blob + tri_blob + bone_blob + anim_blob + b"".join(frame_blobs) + ik_blob + edge_blob)
+    total = tail + len(edge_blob)
     print("wrote %s: %d verts, %d tris, %d bones, %d anims, %d bytes (anim data %d bytes)" % (
         path, len(verts), len(tris), nb, len(anims), total, sum(map(len, frame_blobs))))
 
@@ -961,16 +1084,20 @@ def write_model_bin(model, path):
 # texture -> 8bpp TIM
 # --------------------------------------------------------------------------
 def write_tim(texture, out_path, size=256, vram_x=640, vram_y=0, clut_x=640, clut_y=256, slot=0):
-    """slot 0: body texture, slot 1: face texture (next texture page)."""
-    vram_x += 128 * slot           # 8bpp: 256 texels == 128 VRAM words == one page
-    clut_y += slot
+    """slot 0: body texture, slot 1: face texture (next page), slot 2: skirt
+    texture (128x128 in the sprite page below the monkey)."""
+    if slot == 2:
+        size, vram_x, vram_y, clut_y = SKIRT_TEX_SIZE, 896, SKIRT_TEX_V0, clut_y + 3
+    else:
+        vram_x += 128 * slot           # 8bpp: 256 texels == 128 VRAM words == one page
+        clut_y += slot
     """texture: file path or PIL image."""
     from PIL import Image
     img = (Image.open(texture) if isinstance(texture, str) else texture).convert("RGB")
     if img.size != (size, size):
         img = img.resize((size, size), Image.LANCZOS)
     pal_img = img.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG)
-    pal = pal_img.getpalette()[:256 * 3]
+    pal = (pal_img.getpalette() + [0] * (256 * 3))[:256 * 3]
     idx = pal_img.tobytes()
     clut = []
     for i in range(256):
@@ -1106,9 +1233,15 @@ def main():
                     help="with --reatlas: give the face (above 0.78 of the height) its own 256x256 texture "
                          "(written to --out-face-tim) and protect it from decimation")
     ap.add_argument("--out-face-tim")
-    ap.add_argument("--double-sided", type=float, nargs=2, metavar=("Y0", "Y1"),
-                    help="with --reatlas: make triangles in this height band (fractions of the height, "
-                         "e.g. 0.36 0.56 for the skirt) double sided")
+    ap.add_argument("--gen-skirt", action="store_true",
+                    help="with --skirt: replace the selected skirt by a generated pleated cone with its own "
+                         "tartan texture (--out-skirt-tim)")
+    ap.add_argument("--out-skirt-tim")
+    ap.add_argument("--skirt", dest="double_sided", type=float, nargs="+", metavar="F",
+                    help="with --reatlas: Y0 Y1 [XMAX DMIN] (fractions of the height) select the skirt: "
+                         "centroid height in Y0..Y1, |x| < XMAX (default 0.135), horizontal distance from "
+                         "the body axis > DMIN (default 0.07).  Skirt triangles become double sided and "
+                         "their quad edges are exported for the edge walker")
     ap.add_argument("--remove-hidden", type=float, default=0.0, metavar="DIST",
                     help="drop triangles covered by another surface within DIST x height in front of them "
                          "(e.g. 0.04: skirt under the jacket, body under clothes)")
@@ -1130,7 +1263,7 @@ def main():
     model = convert(scene, verbose=not args.quiet, strip_root_motion=not args.keep_root_motion,
                     target_tris=args.target_tris, reatlas=args.reatlas, texture=src_tex,
                     autorig=args.autorig, face_tex=args.face_tex, dump_uv=args.dump_uv,
-                    hidden_dist=args.remove_hidden, double_sided=args.double_sided,
+                    hidden_dist=args.remove_hidden, double_sided=args.double_sided, gen_skirt=args.gen_skirt,
                     front={"+z": (0, 0, 1), "-z": (0, 0, -1), "+x": (1, 0, 0), "-x": (-1, 0, 0)}[args.front])
     textures = model["textures"]
     tex = textures[0] or args.texture
@@ -1143,6 +1276,11 @@ def main():
     if args.out_face_tim:
         face = textures[1] if len(textures) > 1 and textures[1] is not None else tex
         write_tim(face, args.out_face_tim, slot=1)
+    if args.out_skirt_tim:
+        if len(textures) > 2 and textures[2] is not None:
+            write_tim(textures[2], args.out_skirt_tim, slot=2)
+        else:
+            raise SystemExit("--out-skirt-tim needs --gen-skirt")
     if args.dump_texture and tex:
         from PIL import Image
         (Image.open(tex) if isinstance(tex, str) else tex).convert("RGB").resize((256, 256)).save(args.dump_texture)

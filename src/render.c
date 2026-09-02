@@ -17,13 +17,9 @@
 #include "render.h"
 #include "prof.h"
 
-typedef struct {
-	uint32_t sxy;                   /* packed screen x,y (as stored by GTE) */
-	int32_t  sz;
-	uint32_t rgb;                   /* packed r,g,b,code */
-} VCache;
-
 static VCache vcache[MAX_VERTS];
+
+const VCache *render_get_cache(void) { return vcache; }
 
 /* read NCLIP's result (MAC0) into a register without a memory clobber */
 #define gte_stopz_r(p) __asm__ volatile("mfc2 %0, $24" : "=r"(p))
@@ -45,8 +41,7 @@ static MATRIX light_mtx = {
 	{ 0, 0, 0 }
 };
 
-void renderer_init(Renderer *r, const uint32_t *tim0, const uint32_t *tim1) {
-	const uint32_t *tims[MAX_TEX] = { tim0, tim1 };
+void renderer_init(Renderer *r, const uint32_t *const tims[MAX_TEX]) {
 	r->ntex = 0;
 	for (int i = 0; i < MAX_TEX; i++) {
 		TIM_IMAGE tim;
@@ -155,14 +150,19 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 	if (r->shading == SHADE_GOURAUD) {
 		POLY_GT3 *pri = (POLY_GT3 *)nextpri;
 		for (; tri < tri_end; tri++) {
-			const int i0 = tri->i0, i1 = tri->i1, i2 = tri->i2;
+			const int i0 = tri->i0;
+			int i1 = tri->i1, i2 = tri->i2;
 			const VCache *c0 = &vcache[i0], *c1 = &vcache[i1], *c2 = &vcache[i2];
 			int p;
 			gte_ldsxy3(c0->sxy, c1->sxy, c2->sxy);
 			gte_nclip();
 			gte_stopz_r(p);
-			if (p <= 0)
-				continue;
+			if (p <= 0) {
+				if (!(tri->flags & TRI_FLAG_DOUBLE_SIDED))
+					continue;
+				const VCache *t = c1; c1 = c2; c2 = t;      /* back face: reverse the winding */
+				const int ti = i1; i1 = i2; i2 = ti;
+			}
 			const int sz0 = c0->sz, sz1 = c1->sz, sz2 = c2->sz;
 			if (!sz0 || !sz1 || !sz2)               /* vertex at/behind the camera */
 				continue;
@@ -188,14 +188,19 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 		POLY_FT3 *pri = (POLY_FT3 *)nextpri;
 		int cur_bone = -1;
 		for (; tri < tri_end; tri++) {
-			const int i0 = tri->i0, i1 = tri->i1, i2 = tri->i2;
+			const int i0 = tri->i0;
+			int i1 = tri->i1, i2 = tri->i2;
 			const VCache *c0 = &vcache[i0], *c1 = &vcache[i1], *c2 = &vcache[i2];
 			int p;
 			gte_ldsxy3(c0->sxy, c1->sxy, c2->sxy);
 			gte_nclip();
 			gte_stopz_r(p);
-			if (p <= 0)
-				continue;
+			if (p <= 0) {
+				if (!(tri->flags & TRI_FLAG_DOUBLE_SIDED))
+					continue;
+				const VCache *t = c1; c1 = c2; c2 = t;
+				const int ti = i1; i1 = i2; i2 = ti;
+			}
 			const int sz0 = c0->sz, sz1 = c1->sz, sz2 = c2->sz;
 			if (!sz0 || !sz1 || !sz2)
 				continue;

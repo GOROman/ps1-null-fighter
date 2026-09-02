@@ -78,7 +78,7 @@ void ik_enter(IKState *s, const Model *m, Pose *pose) {
 		const ModelIKChain *c = &m->ik->chains[i];
 		if (c->upper < 0) continue;
 		s->has[i] = 1;
-		s->target[i] = effector_pos(pose, c);
+		s->target[i] = s->base[i] = effector_pos(pose, c);
 	}
 }
 
@@ -170,6 +170,14 @@ static void look_at(Pose *pose, const ModelIK *ik, const Camera *cam, uint8_t *m
 	rot_between(fc, fd, &r);
 	rotate_world(wh, &r, mat_t(wh));
 	modified[ik->head] = 1;
+}
+
+void ik_look_at(const Model *m, Pose *pose, const Camera *cam) {
+	if (!m->ik || m->ik->head < 0) return;
+	uint8_t modified[MAX_BONES];
+	memset(modified, 0, sizeof(modified));
+	look_at(pose, m->ik, cam, modified);
+	pose_refresh(pose, modified);
 }
 
 void ik_apply(IKState *s, const Model *m, Pose *pose, const Camera *cam) {

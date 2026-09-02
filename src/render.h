@@ -13,7 +13,14 @@
 
 enum { SHADE_GOURAUD = 0, SHADE_FLAT = 1 };
 
-#define MAX_TEX    2
+/* projected vertex, filled by render_model pass 1 (index = model vertex) */
+typedef struct {
+	uint32_t sxy;                   /* packed screen x,y (as stored by GTE) */
+	int32_t  sz;
+	uint32_t rgb;                   /* packed r,g,b,code */
+} VCache;
+
+#define MAX_TEX    3
 
 typedef struct {
 	uint16_t tpage[MAX_TEX], clut[MAX_TEX];
@@ -22,11 +29,13 @@ typedef struct {
 	int tris_drawn;
 } Renderer;
 
-/* tim1 may be NULL (single texture) */
-void renderer_init(Renderer *r, const uint32_t *tim0, const uint32_t *tim1);
+/* tims[i] may be NULL (unused slots fall back to slot 0) */
+void renderer_init(Renderer *r, const uint32_t *const tims[MAX_TEX]);
 /* transform + light the posed model and sort it into ot; returns the new
  * packet pointer. */
 char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *cam,
                    uint32_t *ot, char *nextpri);
+/* projected vertices of the last render_model call */
+const VCache *render_get_cache(void);
 
 #endif

@@ -16,7 +16,9 @@
  *
  * IK mode: the pose is frozen, hands and feet stay where they were (two
  * bone IK), the d-pad moves the hip (left/right = X, up/down = height,
- * L2/R2 = forward/back) and the head looks at the camera.
+ * L2/R2 = forward/back) and the head looks at the camera.  The viewer
+ * boots in IK mode with the hip "dancing" on a sine circle; touching the
+ * d-pad takes over, R1 (re-enter) restarts the dance.
  *
  * The bar on the left is a frame profiler in h-blank units (a full frame
  * is the white line): yellow input, orange pose, green vertex transform,
@@ -39,6 +41,7 @@
 #include "prof.h"
 #include "ik.h"
 #include "fixmath.h"
+#include "walker.h"
 
 #define SCREEN_XRES   320
 #define SCREEN_YRES   240
@@ -57,17 +60,20 @@ static DB   db[2];
 static int  db_active = 0;
 static char *db_nextpri;
 
-extern const uint32_t schoolgirl_bin[], schoolgirl_tim[], schoolgirl_face_tim[];
+extern const uint32_t schoolgirl_bin[], schoolgirl_tim[], schoolgirl_face_tim[], schoolgirl_skirt_tim[];
 extern const uint32_t character_bin[],  character_tim[];
+extern const uint32_t monkey_tim[];
 
 typedef struct {
-	const uint32_t *bin, *tim, *face_tim;   /* face_tim: NULL if single texture */
+	const uint32_t *bin;
+	const uint32_t *tims[MAX_TEX];          /* body, face, skirt (NULL = unused) */
 	int yaw;                                /* model yaw that faces the camera */
+	int look_at;                            /* head always turned towards the camera */
 } ModelAsset;
 
 static const ModelAsset assets[] = {
-	{ character_bin,  character_tim,  0,                   2048 },   /* boots on the animated character */
-	{ schoolgirl_bin, schoolgirl_tim, schoolgirl_face_tim, 0 },
+	{ schoolgirl_bin, { schoolgirl_tim, schoolgirl_face_tim, schoolgirl_skirt_tim }, 0, 1 },
+	{ character_bin,  { character_tim, 0, 0 }, 2048, 0 },   /* boots on the animated character */
 };
 #define NUM_ASSETS ((int)(sizeof(assets) / sizeof(assets[0])))
 
@@ -103,25 +109,12 @@ static void init_graphics(void) {
 	FntOpen(12, 8, SCREEN_XRES - 20, 64, 0, 256);
 }
 
-/* Draw the 256x256 model texture scaled down in the bottom-right corner so
- * the TIM conversion / UV mapping can be checked visually.  ot[0] is drawn
- * last (reversed table), so the quad lands on top of the model. */
-#define TEXPREV_SIZE 72
-static char *draw_texture_preview(const Renderer *r, uint32_t *ot, char *nextpri) {
-	POLY_FT4 *q = (POLY_FT4 *)nextpri;
-	for (int i = 0; i < r->ntex; i++) {
-		int x0 = SCREEN_XRES - 8 - TEXPREV_SIZE * (r->ntex - i) - 4 * (r->ntex - 1 - i);
-		int y0 = SCREEN_YRES - 8 - TEXPREV_SIZE;
-		setPolyFT4(q);
-		setRGB0(q, 128, 128, 128);
-		setXY4(q, x0, y0, x0 + TEXPREV_SIZE, y0, x0, y0 + TEXPREV_SIZE, x0 + TEXPREV_SIZE, y0 + TEXPREV_SIZE);
-		setUV4(q, 0, 0, 255, 0, 0, 255, 255, 255);
-		q->tpage = r->tpage[i];
-		q->clut  = r->clut[i];
-		addPrim(ot, q);
-		q++;
-	}
-	return (char *)q;
+/* sin(2 pi (t / period + phase / 4096)) in 4096 units, via the GTE rotation matrix */
+static int dance_sin(int t, int period, int phase) {
+	SVECTOR ang = { 0, ((t * 4096) / period + phase) & 4095, 0, 0 };
+	MATRIX rm;
+	RotMatrix(&ang, &rm);                              /* m[0][2] = sin(y angle) */
+	return rm.m[0][2];
 }
 
 /* Floor: wire grid on the Y = 0 plane (model space, feet level), X axis red,
@@ -269,10 +262,13 @@ int main(void) {
 	Camera   cam;
 	Renderer renderer;
 	IKState  ik;
+	Walker   walker;
 
 	int cur_asset = 0;
 	int model_yaw;
 	int combo_used = 0;        /* START+SELECT fired: swallow the single-button releases */
+	int dance = 0;             /* IK mode: hip driven by sines instead of the d-pad */
+	int dance_t = 0;
 	memset(&ik, 0, sizeof(ik));
 
 	init_graphics();
@@ -287,11 +283,15 @@ int main(void) {
 		}
 	}
 	model_open(&model, assets[cur_asset].bin);
-	renderer_init(&renderer, assets[cur_asset].tim, assets[cur_asset].face_tim);
+	renderer_init(&renderer, assets[cur_asset].tims);
+	walker_load_sprite(monkey_tim);
+	walker_reset(&walker, &model);
 	model_yaw = assets[cur_asset].yaw;
 	camera_init(&cam);
 	prof_init();
 	pose_init(&pose, &model, 0);
+	ik_enter(&ik, &model, &pose);
+	dance = 1;
 
 	InitPAD(pad_buff[0], 34, pad_buff[1], 34);
 	StartPAD();
@@ -331,7 +331,9 @@ int main(void) {
 			if (held & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT))
 				combo_used = 1;               /* do not toggle shading on release */
 		} else if (ik.active) {
-			/* d-pad drives the hip bone */
+			/* d-pad drives the hip bone (and stops the dance) */
+			if (held & (PAD_LEFT | PAD_RIGHT | PAD_UP | PAD_DOWN | PAD_L2 | PAD_R2))
+				dance = 0;
 			if (held & PAD_LEFT)  pose.hip_offset.vx -= 24;
 			if (held & PAD_RIGHT) pose.hip_offset.vx += 24;
 			if (held & PAD_UP)    pose.hip_offset.vy -= 24;   /* y is down */
@@ -357,8 +359,24 @@ int main(void) {
 		if (((pressed & (PAD_START | PAD_SELECT)) && (held & PAD_START) && (held & PAD_SELECT)) ||
 		    (pressed & PAD_R1)) {
 			if (held & PAD_START) combo_used = 1;
-			if (ik.active) ik_leave(&ik, &pose);
-			else           ik_enter(&ik, &model, &pose);
+			if (ik.active) { ik_leave(&ik, &pose); dance = 0; }
+			else           { ik_enter(&ik, &model, &pose); dance = 1; dance_t = 0; }
+		}
+		if (ik.active && dance) {
+			/* hip on a slow horizontal circle (5 s per turn) with a
+			 * double-time bounce; the hands sway on their own sines */
+			#define DANCE_SIN(period, phase) dance_sin(dance_t, period, phase)
+			pose.hip_offset.vx = (220 * DANCE_SIN(300, 0)) >> 12;
+			pose.hip_offset.vz = (220 * DANCE_SIN(300, 1024)) >> 12;
+			pose.hip_offset.vy = 120 + ((110 * DANCE_SIN(150, 0)) >> 12);   /* down = positive */
+			for (int i = 0; i < 2; i++) {               /* IK_ARM_L, IK_ARM_R */
+				if (!ik.has[i]) continue;
+				int ph = i ? 2048 : 0;                  /* arms in counter-phase */
+				ik.target[i].vx = ik.base[i].vx + ((90  * DANCE_SIN(300, ph + 512)) >> 12);
+				ik.target[i].vy = ik.base[i].vy + ((140 * DANCE_SIN(150, ph + 1024)) >> 12) - 60;
+				ik.target[i].vz = ik.base[i].vz + ((160 * DANCE_SIN(300, ph)) >> 12);
+			}
+			dance_t++;
 		}
 		if (!(held & (PAD_START | PAD_SELECT)))
 			combo_used = 0;
@@ -375,10 +393,13 @@ int main(void) {
 		if ((released & PAD_START) && !combo_used) {
 			int shading = renderer.shading;
 			ik_leave(&ik, &pose);
+			dance = 0;
 			cur_asset = (cur_asset + 1) % NUM_ASSETS;
 			model_open(&model, assets[cur_asset].bin);
-			renderer_init(&renderer, assets[cur_asset].tim, assets[cur_asset].face_tim);
+			renderer_init(&renderer, assets[cur_asset].tims);
 			renderer.shading = shading;
+			walker_load_sprite(monkey_tim);      /* renderer_init reloads VRAM */
+			walker_reset(&walker, &model);
 			model_yaw = assets[cur_asset].yaw;
 			pose_init(&pose, &model, 0);
 		}
@@ -393,20 +414,23 @@ int main(void) {
 		/* ---- animation --------------------------------------------------- */
 		pose_step(&pose, 60);
 		pose_eval(&pose);
-		ik_apply(&ik, &model, &pose, &cam);
+		if (ik.active)
+			ik_apply(&ik, &model, &pose, &cam);          /* includes the look-at */
+		else if (assets[cur_asset].look_at)
+			ik_look_at(&model, &pose, &cam);
 		prof_mark(PROF_POSE);
 
 		/* ---- render ------------------------------------------------------ */
 		db_nextpri = render_model(&renderer, &model, &pose, &cam, db[db_active].ot, db_nextpri);
 		db_nextpri = draw_floor(&cam, db[db_active].ot, db_nextpri);
-		db_nextpri = draw_texture_preview(&renderer, db[db_active].ot, db_nextpri);
+		db_nextpri = walker_draw(&walker, &model, render_get_cache(), db[db_active].ot, db_nextpri);
 		db_nextpri = prof_draw(db[db_active].ot, db_nextpri);
 
 		const ModelAnim *a = &model.anims[pose.anim];
 		FntPrint(-1, "NULL FIGHTER  %s\n", renderer.shading == SHADE_FLAT ? "FLAT" : "GOURAUD");
 		if (ik.active)
-			FntPrint(-1, "IK MODE  HIP %d,%d,%d  (%s %d)\n", pose.hip_offset.vx, pose.hip_offset.vy,
-			         pose.hip_offset.vz, a->name, pose.frame);
+			FntPrint(-1, "IK %s HIP %d,%d,%d  (%s %d)\n", dance ? "DANCE" : "MODE ", pose.hip_offset.vx,
+			         pose.hip_offset.vy, pose.hip_offset.vz, a->name, pose.frame);
 		else
 			FntPrint(-1, "ANIM %d/%d %-15s %3d/%3d %s\n", pose.anim + 1, model.hdr->nanims, a->name,
 			         pose.frame, a->nframes, pose.playing ? "" : "PAUSE");

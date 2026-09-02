@@ -10,7 +10,8 @@
 
 typedef struct {
 	int active;
-	VECTOR target[IK_CHAINS];      /* effector positions captured on entry (model space) */
+	VECTOR target[IK_CHAINS];      /* effector positions (model space), may be animated */
+	VECTOR base[IK_CHAINS];        /* effector positions captured on entry */
 	int has[IK_CHAINS];
 } IKState;
 
@@ -19,5 +20,7 @@ void ik_enter(IKState *s, const Model *m, Pose *pose);
 void ik_leave(IKState *s, Pose *pose);
 /* call after pose_eval: solve the chains and the head look-at */
 void ik_apply(IKState *s, const Model *m, Pose *pose, const Camera *cam);
+/* head look-at only (used every frame for characters that always face the camera) */
+void ik_look_at(const Model *m, Pose *pose, const Camera *cam);
 
 #endif
