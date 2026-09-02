@@ -193,9 +193,18 @@ static const uint8_t prof_color[PROF_STAGES][3] = {
 	{ 240,  50,  50 },   /* gpu     red */
 	{   0,   0,   0 },   /* vsync   black */
 };
+static int prof_peak = 0, prof_peak_hold = 0;
 static char *prof_draw(uint32_t *ot, char *nextpri) {
 	TILE *t = (TILE *)nextpri;
 	int pos = 0;                           /* h-blanks from the frame start */
+	/* peak of the busy time (everything but the v-sync wait): held for 2 s,
+	 * then decays */
+	int busy = 0;
+	for (int i = 0; i < PROF_STAGES; i++)
+		if (i != PROF_VSYNC) busy += prof_stage[i];
+	if (busy >= prof_peak) { prof_peak = busy; prof_peak_hold = 120; }
+	else if (prof_peak_hold > 0) prof_peak_hold--;
+	else if (prof_peak > busy) prof_peak -= 2;
 	for (int i = 0; i < PROF_STAGES; i++) {
 		int left = prof_stage[i];
 		while (left > 0) {
@@ -216,6 +225,18 @@ static char *prof_draw(uint32_t *ot, char *nextpri) {
 			}
 			pos += n;
 			left -= n;
+		}
+	}
+	/* peak line (yellow) */
+	{
+		int col = prof_peak / PROF_FRAME, in_col = prof_peak % PROF_FRAME;
+		if (col <= 3) {
+			setTile(t);
+			setRGB0(t, 255, 255, 0);
+			setXY0(t, PROF_X + col * (PROF_W + 2) - 1, PROF_Y + (in_col * PROF_SCALE) / PROF_FRAME);
+			setWH(t, PROF_W + 2, 1);
+			addPrim(ot, t);
+			t++;
 		}
 	}
 	/* half-frame and full-frame marks */
