@@ -374,7 +374,13 @@ static void fighter_ai(Fight *fg, int i) {
 		if (f->attack == FA_SPECIAL && f->hit_done && pct >= f->rehit_at)
 			f->hit_done = 0;
 		if (!f->hit_done && pct >= hit_from && pct <= hit_to) {
-			if (d <= reach_of(f->attack) && o->state != FS_KO && o->state != FS_DOWN) {
+			/* geometric test: the striking hand / foot inside the opponent's
+			 * body cylinder (radius 450, floor to head), or the plain range */
+			VECTOR spt = strike_point(f, dir);
+			int ddx = spt.vx - o->x, ddz = spt.vz - o->z;
+			int limb_hit = (ddx * ddx + ddz * ddz) < 450 * 450 && spt.vy < 0 && spt.vy > -3900;
+			int range_hit = d <= reach_of(f->attack) - (f->attack == FA_SPECIAL ? 0 : 300);
+			if ((limb_hit || range_hit) && o->state != FS_KO && o->state != FS_DOWN) {
 				f->hit_done = 1;
 				f->rehit_at = pct + 22;
 				int dmg = f->attack == FA_PUNCH ? 9 : f->attack == FA_KICK ? 14 : 6;   /* sbk: small, multi hit */
