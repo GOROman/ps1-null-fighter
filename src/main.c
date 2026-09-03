@@ -193,18 +193,17 @@ static const uint8_t prof_color[PROF_STAGES][3] = {
 	{ 240,  50,  50 },   /* gpu     red */
 	{   0,   0,   0 },   /* vsync   black */
 };
-static int prof_peak = 0, prof_peak_hold = 0;
+static int prof_peak = 0, prof_peak_acc = 0, prof_peak_n = 0;
 static char *prof_draw(uint32_t *ot, char *nextpri) {
 	TILE *t = (TILE *)nextpri;
 	int pos = 0;                           /* h-blanks from the frame start */
-	/* peak of the busy time (everything but the v-sync wait): held for 2 s,
-	 * then decays */
+	/* peak of the busy time (everything but the v-sync wait) over the last
+	 * half second, updated every 0.5 s */
 	int busy = 0;
 	for (int i = 0; i < PROF_STAGES; i++)
 		if (i != PROF_VSYNC) busy += prof_stage[i];
-	if (busy >= prof_peak) { prof_peak = busy; prof_peak_hold = 120; }
-	else if (prof_peak_hold > 0) prof_peak_hold--;
-	else if (prof_peak > busy) prof_peak -= 2;
+	if (busy > prof_peak_acc) prof_peak_acc = busy;
+	if (++prof_peak_n >= 30) { prof_peak = prof_peak_acc; prof_peak_acc = 0; prof_peak_n = 0; }
 	for (int i = 0; i < PROF_STAGES; i++) {
 		int left = prof_stage[i];
 		while (left > 0) {
