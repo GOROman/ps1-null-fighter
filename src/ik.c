@@ -9,9 +9,6 @@
 #include "fixmath.h"
 
 
-static VECTOR look_smooth;        /* head look-at: filtered desired direction (model space) */
-static int look_init;
-
 static int16_t clamp16(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : (int16_t)v; }
 
 /* rotation taking unit vector a onto unit vector b (both 4096 scaled) */
@@ -68,7 +65,7 @@ static VECTOR effector_pos(const Pose *pose, const ModelIKChain *c) {
 
 void ik_enter(IKState *s, const Model *m, Pose *pose) {
 	memset(s, 0, sizeof(*s));
-	look_init = 0;
+	pose->look_init = 0;
 	if (!m->ik) return;
 	s->active = 1;
 	pose->hip_bone = m->ik->hip;
@@ -179,30 +176,42 @@ static VECTOR limit_dir(VECTOR base, VECTOR fd) {
 	return vec((dh.vx * s) >> 12, y, (dh.vz * s) >> 12);
 }
 
-static void look_at(Pose *pose, const ModelIK *ik, const Camera *cam, uint8_t *modified) {
+static void look_at_point(Pose *pose, const ModelIK *ik, VECTOR cp, uint8_t *modified) {
 	if (ik->head < 0) return;
 	MATRIX *wh = &pose->world[ik->head];
-	/* camera position in model space: p = -R^T t */
-	const MATRIX *vw = &cam->view;
-	VECTOR cp = vec(-((vw->m[0][0] * vw->t[0] + vw->m[1][0] * vw->t[1] + vw->m[2][0] * vw->t[2]) >> 12),
-	                -((vw->m[0][1] * vw->t[0] + vw->m[1][1] * vw->t[1] + vw->m[2][1] * vw->t[2]) >> 12),
-	                -((vw->m[0][2] * vw->t[0] + vw->m[1][2] * vw->t[1] + vw->m[2][2] * vw->t[2]) >> 12));
 	VECTOR fwd_local = vec(ik->head_fwd[0], ik->head_fwd[1], ik->head_fwd[2]), fwd;
 	ApplyMatrixLV(wh, &fwd_local, &fwd);
 	VECTOR fc = vnorm(fwd);
 	if (fc.vx == 0 && fc.vy == 0 && fc.vz == 0) return;
 	VECTOR fd = limit_dir(fc, vnorm(vsub(cp, mat_t(wh))));
 	/* lag: move the filtered direction a fraction of the way each frame */
-	if (!look_init) { look_smooth = fc; look_init = 1; }
-	look_smooth.vx += (fd.vx - look_smooth.vx) / LOOK_LAG;
-	look_smooth.vy += (fd.vy - look_smooth.vy) / LOOK_LAG;
-	look_smooth.vz += (fd.vz - look_smooth.vz) / LOOK_LAG;
-	VECTOR target = vnorm(look_smooth);
+	if (!pose->look_init) { pose->look_smooth = fc; pose->look_init = 1; }
+	pose->look_smooth.vx += (fd.vx - pose->look_smooth.vx) / LOOK_LAG;
+	pose->look_smooth.vy += (fd.vy - pose->look_smooth.vy) / LOOK_LAG;
+	pose->look_smooth.vz += (fd.vz - pose->look_smooth.vz) / LOOK_LAG;
+	VECTOR target = vnorm(pose->look_smooth);
 	if (target.vx == 0 && target.vy == 0 && target.vz == 0) return;
 	MATRIX r;
 	rot_between(fc, target, &r);
 	rotate_world(wh, &r, mat_t(wh));
 	modified[ik->head] = 1;
+}
+
+static void look_at(Pose *pose, const ModelIK *ik, const Camera *cam, uint8_t *modified) {
+	/* camera position in model space: p = -R^T t */
+	const MATRIX *vw = &cam->view;
+	VECTOR cp = vec(-((vw->m[0][0] * vw->t[0] + vw->m[1][0] * vw->t[1] + vw->m[2][0] * vw->t[2]) >> 12),
+	                -((vw->m[0][1] * vw->t[0] + vw->m[1][1] * vw->t[1] + vw->m[2][1] * vw->t[2]) >> 12),
+	                -((vw->m[0][2] * vw->t[0] + vw->m[1][2] * vw->t[1] + vw->m[2][2] * vw->t[2]) >> 12));
+	look_at_point(pose, ik, cp, modified);
+}
+
+void ik_look_at_point(const Model *m, Pose *pose, VECTOR target) {
+	if (!m->ik || m->ik->head < 0) return;
+	uint8_t modified[MAX_BONES];
+	memset(modified, 0, sizeof(modified));
+	look_at_point(pose, m->ik, target, modified);
+	pose_refresh(pose, modified);
 }
 
 void ik_look_at(const Model *m, Pose *pose, const Camera *cam) {

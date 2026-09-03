@@ -8,10 +8,10 @@
 #include "camera.h"
 
 #define OT_LEN     4096
-#define MAX_VERTS  4096
+#define MAX_VERTS  8192
 #define OTZ_SHIFT  3        /* camera z -> ordering table index */
 
-enum { SHADE_GOURAUD = 0, SHADE_FLAT = 1 };
+enum { SHADE_GOURAUD = 0, SHADE_FLAT = 1, SHADE_NONE = 2 };   /* NONE: texture only, no lighting (fastest) */
 
 /* projected vertex, filled by render_model pass 1 (index = model vertex) */
 typedef struct {
@@ -29,6 +29,7 @@ typedef struct {
 	int tris_drawn;
 	const uint8_t *cut;          /* per model triangle: 1 = do not draw (cloth cut out); NULL = none */
 	const uint8_t *bone_mask;    /* per bone: 0 = skip (NULL = draw everything) */
+	uint32_t unlit_rgb;          /* SHADE_NONE: constant colour (0x00bbggrr), 0x808080 = neutral */
 	int otz_shift, otz_base, otz_limit;   /* OT index = (sz0+sz1+sz2 >> otz_shift) + otz_base, < otz_limit */
 } Renderer;
 

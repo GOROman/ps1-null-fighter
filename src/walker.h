@@ -11,7 +11,7 @@
 
 #define MAX_EDGES   512
 #define MAX_QUADS   256
-#define MAX_CUT     4096          /* per-triangle cut flags (index = model triangle) */
+#define MAX_CUT     8192          /* per-triangle cut flags (index = model triangle), >= MAX_VERTS */
 #define MAX_PIECES  12
 
 typedef struct {

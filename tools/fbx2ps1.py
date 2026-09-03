@@ -260,7 +260,10 @@ class AnimStack:
 
 
 class Scene:
-    def __init__(self, path):
+    def __init__(self, path, drop_bones=()):
+        """drop_bones: name fragments (case insensitive); matching LimbNodes are
+        removed from the skeleton - their skin weights go to the nearest kept
+        ancestor and their animated rotation is folded into the children."""
         self.fbx = FbxFile(path)
         fbx = self.fbx
         self.models = {}
@@ -271,13 +274,21 @@ class Scene:
                 m.parent = self.models[obj_id(parent)]
                 m.parent.children.append(m)
         self.roots = [m for m in self.models.values() if m.parent is None]
+        for m in self.models.values():
+            m.dropped = False
 
         # skeleton: LimbNodes in hierarchy (depth-first) order
         self.bones = []
+        drop = [d.lower() for d in drop_bones]
+        self.dropped = []
         def walk(m):
             if m.subclass == "LimbNode":
-                m.bone_index = len(self.bones)
-                self.bones.append(m)
+                if any(d in m.name.lower() for d in drop):
+                    m.dropped = True
+                    self.dropped.append(m)
+                else:
+                    m.bone_index = len(self.bones)
+                    self.bones.append(m)
             for c in m.children:
                 walk(c)
         for r in self.roots:
@@ -299,6 +310,7 @@ class Scene:
 
         # skin clusters
         self.clusters = {}  # bone index -> (indexes, weights, transform, transform_link)
+        self.extra_weights = {}   # kept bone index -> [(indexes, weights)] from dropped bones
         for skin in [d for d, _ in fbx.children_of(obj_id(self.geom), "Deformer")]:
             for cl, _ in fbx.children_of(obj_id(skin), "Deformer"):
                 if obj_subclass(cl) != "Cluster":
@@ -311,11 +323,23 @@ class Scene:
                 w = cl.first("Weights")
                 tf = mat_from_fbx_array(cl.first("Transform").props[0])
                 tl = mat_from_fbx_array(cl.first("TransformLink").props[0])
-                self.clusters[b.bone_index] = (
-                    np.array(idx.props[0] if idx else [], dtype=np.int64),
-                    np.array(w.props[0] if w else [], dtype=np.float64), tf, tl)
+                idx = np.array(idx.props[0] if idx else [], dtype=np.int64)
+                w = np.array(w.props[0] if w else [], dtype=np.float64)
+                if b.dropped:
+                    # weights go to the nearest kept ancestor (its own cluster
+                    # keeps its bind matrices)
+                    k = b.parent
+                    while k is not None and (k.subclass != "LimbNode" or k.dropped):
+                        k = k.parent
+                    if k is None:
+                        continue
+                    self.extra_weights.setdefault(k.bone_index, []).append((idx, w))
+                    continue
+                self.clusters[b.bone_index] = (idx, w, tf, tl)
 
         self.stacks = [AnimStack(fbx, s, self.models) for s in fbx.by_type("AnimationStack")]
+        if self.dropped:
+            print("dropped %d bones: %s" % (len(self.dropped), ", ".join(m.name for m in self.dropped)))
 
         gs = properties70(fbx.root.first("GlobalSettings")) if fbx.root.first("GlobalSettings") else {}
         self.up_axis = int(prop_scalar(gs, "UpAxis", 1))          # 0=X 1=Y 2=Z
@@ -344,13 +368,13 @@ class Scene:
             lm = stack.local_matrix(cur, t) if stack else cur.local_matrix()
             m = lm @ m
             cur = cur.parent
-            if cur is None or cur.subclass == "LimbNode":
+            if cur is None or (cur.subclass == "LimbNode" and not cur.dropped):
                 break
         return m
 
     def bone_parent_index(self, bone):
         cur = bone.parent
-        while cur is not None and cur.subclass != "LimbNode":
+        while cur is not None and (cur.subclass != "LimbNode" or cur.dropped):
             cur = cur.parent
         return cur.bone_index if cur is not None else -1
 
@@ -427,6 +451,10 @@ def build_skin(scene, nverts_pos):
     for b, (idx, w, _tf, _tl) in scene.clusters.items():
         for i, ww in zip(idx, w):
             weights[i, b] += ww
+    for b, lst in getattr(scene, "extra_weights", {}).items():
+        for idx, w in lst:
+            for i, ww in zip(idx, w):
+                weights[i, b] += ww
     dominant = np.argmax(weights, axis=1)
     unskinned = np.where(weights.sum(axis=1) <= 0)[0]
     if len(unskinned) and not scene.static:
@@ -452,7 +480,7 @@ def to_ps1_matrix(m):
 def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=None,
                   atlas_size=256, verbose=True, face_tex=False, face_min_y=0.78, dump_uv=None,
                   front=(0, 0, 1), hidden_dist=0.0, double_sided=None, gen_skirt=False, rig_split=False,
-                  gen_body=False):
+                  gen_body=False, keep_face=False, face_weight=1.0, keep_eyes=False, world_xform=None):
     """Decimate to target_tris (0 = keep) and optionally re-unwrap the UVs
     with xatlas, baking the source texture into the new atlas.  With
     face_tex the triangles above the neck line get their own atlas/texture
@@ -467,7 +495,14 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
     cuv = np.array([[(verts[i][2][0], 1.0 - verts[i][2][1]) if verts[i][2] is not None else (0.0, 0.0)
                      for i in t] for t in tris])
     P = positions
-    ymin, H = P[:, 1].min(), P[:, 1].max()
+    # region tests (head, face...) are done in world space, Y up: a mesh
+    # node may be rotated (Tripo rigs are Z up in mesh-local space)
+    def to_world(Q):
+        if world_xform is None:
+            return np.asarray(Q)
+        return (world_xform[:3, :3] @ np.asarray(Q).T).T + world_xform[:3, 3]
+    Pw = to_world(P)
+    ymin, H = Pw[:, 1].min(), Pw[:, 1].max()
 
     def skirt_mask(T_, covered=None):
         """The visible skirt: every corner in the height band, near the body
@@ -549,16 +584,51 @@ def optimize_mesh(positions, verts, tris, target_tris=0, reatlas=False, texture=
         T, cuv = T[head_mask], cuv[head_mask]          # the original keeps only the head (and hands)
         if target_tris:
             target_tris = max(450, target_tris - len(body[2]))     # the head keeps at least 450
-    # face region (above the neck line, mesh Y-up): protected from decimation
-    head = P[:, 1] >= ymin + (H - ymin) * face_min_y
+    # face region (above the neck line, world Y-up): protected from decimation
+    Pw = to_world(P)
+    head = Pw[:, 1] >= ymin + (H - ymin) * face_min_y
     # the face proper: front half of the head (hair stays in the body atlas)
     fr = np.array(front, dtype=np.float64)
-    centre = (P[head].min(axis=0) + P[head].max(axis=0)) * 0.5
-    face = head & (((P - centre) @ fr) >= -0.01 * (H - ymin))
-    importance = np.where(face, 10.0, 1.0) if face_tex else None
+    # front half by vertex count (median along the front axis): robust
+    # against hair volumes behind / beside the head shifting a bbox centre
+    proj = Pw @ fr
+    face = head & (proj >= np.median(proj[head]) - 0.01 * (H - ymin))
+    protect = face_tex or keep_face
+    importance = np.where(face, 10.0, 1.0) if protect else None
+    if face_weight > 1.0:
+        importance = np.where(head, face_weight, 1.0)     # the whole head collapses last, never frozen
     # the face below the hairline (eyes, mouth) is never decimated: moving
     # those vertices would smear the texture that is baked through them
-    frozen = face & (P[:, 1] < ymin + (H - ymin) * 0.93) if face_tex else None
+    frozen = face & (Pw[:, 1] < ymin + (H - ymin) * 0.93) if protect else None
+    if keep_eyes and texture is not None:
+        # the face (every head vertex that is not hair-coloured: skin, eyes,
+        # brows, mouth) plus one ring of neighbours is never collapsed - a
+        # collapsed edge next to the eyes stretches their texels over the
+        # face.  Hair colour = median colour of the top of the head.
+        from meshopt import _sample_bilinear
+        src = np.asarray(texture.convert("RGB"), dtype=np.float64)
+        flat_uv = cuv.reshape(-1, 2)
+        col = _sample_bilinear(src, flat_uv[:, 0], flat_uv[:, 1]).reshape(len(T), 3, 3)
+        vcol = np.zeros((len(P), 3))
+        vcnt = np.zeros(len(P))
+        for c in range(3):
+            np.add.at(vcol, T[:, c], col[:, c])
+            np.add.at(vcnt, T[:, c], 1)
+        vcol[vcnt > 0] /= vcnt[vcnt > 0][:, None]
+        top = head & (Pw[:, 1] >= ymin + (H - ymin) * 0.95)
+        hair_col = np.median(vcol[top], axis=0) if top.any() else np.array([255, 0, 255])
+        hair = np.linalg.norm(vcol - hair_col, axis=1) < 70
+        # hair in front of the face (bangs, dark shading) would smear too:
+        # everything on the front half of the head stays
+        facev = head & ((~hair & (vcnt > 0)) | face)
+        grow = facev.copy()
+        for a_, b_, c_ in T:
+            if facev[a_] or facev[b_] or facev[c_]:
+                grow[a_] = grow[b_] = grow[c_] = True
+        frozen = grow if frozen is None else (frozen | grow)
+        if verbose:
+            print("keep-eyes: hair colour %s, %d face vertices, %d frozen with neighbours" % (
+                hair_col.astype(int).tolist(), int(facev.sum()), int(grow.sum())))
     if target_tris and target_tris < len(T):
         P, T, keep = decimate(P, T, target_tris, verbose=verbose, importance=importance, frozen=frozen)
         if verbose and frozen is not None:
@@ -809,7 +879,8 @@ def build_ik_table(bone_names, parents, bone_bind_global, inv_bind, bind_local, 
 
 def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=False, texture=None,
             autorig=False, front=(0, 0, 1), face_tex=False, dump_uv=None, hidden_dist=0.0,
-            double_sided=None, gen_skirt=False, gen_body=False):
+            double_sided=None, gen_skirt=False, gen_body=False, anim_from=None, keep_face=False,
+            face_weight=1.0, keep_eyes=False):
     global C_FBX_TO_PS1
     if scene.up_axis == 2:
         C_FBX_TO_PS1 = C_ZUP_TO_PS1 * np.array([[1], [scene.up_sign], [1]])
@@ -824,12 +895,15 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
     pos_bone = None
     quads = []
     if target_tris or reatlas or hidden_dist:
+        mesh_xform = scene.global_matrix(scene.mesh_model) @ scene.mesh_model.geometric_matrix()
         positions, verts, tris, textures, edges, skirt_pos_start, pos_bone, quads = optimize_mesh(positions, verts, tris, target_tris, reatlas,
                                                          texture, verbose=verbose, face_tex=face_tex,
                                                          dump_uv=dump_uv, front=front, hidden_dist=hidden_dist,
                                                          double_sided=double_sided, gen_skirt=gen_skirt,
                                                          rig_split=autorig and scene.static,
-                                                         gen_body=gen_body)
+                                                         gen_body=gen_body, keep_face=keep_face,
+                                                         face_weight=face_weight, keep_eyes=keep_eyes,
+                                                         world_xform=mesh_xform)
         if verbose:
             print("optimized mesh: %d verts, %d tris" % (len(verts), len(tris)))
     else:
@@ -985,6 +1059,32 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
     if rig:
         import autorig as ar
         stacks = [ar.SynthAnim(n, d, fn, bind_local_fbx, rig["H"]) for n, d, fn in ar.ANIMS]
+    elif anim_from is not None and anim_from.stacks:
+        # animation transfer from another rig with the same bone names (same
+        # Tripo auto-rig): local rotations are copied, translations follow
+        # our bind pose plus the other rig's animated offset from its own
+        # bind pose
+        other = anim_from
+        by_name = {b.name: b for b in other.bones}
+
+        class _XferAnim:
+            def __init__(self, st):
+                self.st, self.name, self.duration = st, st.name, st.duration
+            def bone_local(self, b, t):
+                ob = by_name.get(bone_names[b])
+                if ob is None or ob.id not in self.st.tracks:
+                    return bind_local_fbx[b]
+                m = other.bone_effective_local(ob, self.st, self.st.start + t)
+                rest = other.bone_effective_local(ob, None)
+                rot, _ = orthonormalize(m)
+                out = np.eye(4)
+                out[:3, :3] = rot[:3, :3]
+                out[:3, 3] = bind_local_fbx[b][:3, 3] + (m[:3, 3] - rest[:3, 3])
+                return out
+        stacks = [_XferAnim(st) for st in other.stacks]
+        if verbose:
+            missing = [n for n in bone_names if n not in by_name]
+            print("animation transfer: %d stacks, bones not in the source rig: %s" % (len(stacks), missing))
     else:
         class _FbxAnim:
             def __init__(self, st):
@@ -1326,6 +1426,18 @@ def main():
                     help="with --skirt: replace the selected skirt by a generated pleated cone with its own "
                          "tartan texture (--out-skirt-tim)")
     ap.add_argument("--out-skirt-tim")
+    ap.add_argument("--keep-face", action="store_true",
+                    help="never decimate the face (front half of the head below the hairline)")
+    ap.add_argument("--tim-slot", type=int, default=0,
+                    help="VRAM slot of the body texture (0: page 640, 1: page 768) so two characters can be loaded")
+    ap.add_argument("--keep-eyes", action="store_true",
+                    help="decimation: never collapse head vertices whose texture is dark (eyes, brows, mouth)")
+    ap.add_argument("--face-weight", type=float, default=1.0,
+                    help="decimation: multiply the face's error quadrics by this (face edges collapse last)")
+    ap.add_argument("--drop-bones", default="",
+                    help="comma separated name fragments of bones to remove (e.g. twist,toebase)")
+    ap.add_argument("--anim-from", metavar="FBX",
+                    help="take the animations from this FBX (same bone names, e.g. another Tripo rig)")
     ap.add_argument("--gen-body", action="store_true",
                     help="with --autorig --reatlas: rebuild everything but the head as measured lathes "
                          "textured by projecting the original texture (tools/bodygen.py)")
@@ -1344,7 +1456,8 @@ def main():
                     help="un-rigged mesh: segment into body parts, add a biped skeleton and procedural animations")
     args = ap.parse_args()
 
-    scene = Scene(args.fbx)
+    drop = [d for d in args.drop_bones.split(",") if d]
+    scene = Scene(args.fbx, drop_bones=drop)
     if not args.quiet:
         print("FBX v%d: %d bones, %d anim stacks, mesh model %r" % (
             scene.fbx.version, len(scene.bones), len(scene.stacks), scene.mesh_model.name))
@@ -1356,7 +1469,9 @@ def main():
                     target_tris=args.target_tris, reatlas=args.reatlas, texture=src_tex,
                     autorig=args.autorig, face_tex=args.face_tex, dump_uv=args.dump_uv,
                     hidden_dist=args.remove_hidden, double_sided=args.double_sided, gen_skirt=args.gen_skirt,
-                    gen_body=args.gen_body,
+                    gen_body=args.gen_body, keep_face=args.keep_face, face_weight=args.face_weight,
+                    keep_eyes=args.keep_eyes,
+                    anim_from=Scene(args.anim_from, drop_bones=drop) if args.anim_from else None,
                     front={"+z": (0, 0, 1), "-z": (0, 0, -1), "+x": (1, 0, 0), "-x": (-1, 0, 0)}[args.front])
     textures = model["textures"]
     tex = textures[0] or args.texture
@@ -1365,7 +1480,7 @@ def main():
     if args.out_tim:
         if not tex:
             raise SystemExit("--out-tim requires --texture")
-        write_tim(tex, args.out_tim)
+        write_tim(tex, args.out_tim, slot=args.tim_slot)
     if args.out_face_tim:
         face = textures[1] if len(textures) > 1 and textures[1] is not None else tex
         write_tim(face, args.out_face_tim, slot=1)

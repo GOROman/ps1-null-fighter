@@ -72,6 +72,7 @@ void renderer_init(Renderer *r, const uint32_t *const tims[MAX_TEX]) {
 	r->tris_drawn = 0;
 	r->cut = 0;
 	r->bone_mask = 0;
+	r->unlit_rgb = 0x00808080;
 	r->otz_shift = 2 + OTZ_SHIFT;
 	r->otz_base = 0;
 	r->otz_limit = OT_LEN;
@@ -155,7 +156,7 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 	/* ---- pass 2: build primitives --------------------------------------- */
 	const ModelTri *tri = m->tris;
 	const ModelTri *tri_end = tri + m->hdr->ntris;
-	static const uint8_t no_cut[4096];
+	static const uint8_t no_cut[MAX_VERTS];
 	const uint8_t *cut = r->cut ? r->cut : no_cut;
 	const uint8_t *mask = r->bone_mask;
 	const int otz_shift = r->otz_shift, otz_base = r->otz_base, otz_limit = r->otz_limit;
@@ -210,6 +211,8 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 	} else {
 		POLY_FT3 *pri = (POLY_FT3 *)nextpri;
 		int cur_bone = -1;
+		const int unlit = r->shading == SHADE_NONE;
+		const uint32_t unlit_rgb = r->unlit_rgb & 0x00ffffff;
 		for (; tri < tri_end; tri++) {
 			if (cut[tri - m->tris] || (mask && !mask[tri->bone]))
 				continue;
@@ -235,17 +238,21 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 			int otz = ((sz0 + sz1 + sz2) >> otz_shift) + otz_base;
 			if (otz >= otz_limit)
 				continue;
-			/* triangles are sorted by bone: reload the light matrix only when
-			 * the bone changes */
-			if (tri->bone != cur_bone) {
-				cur_bone = tri->bone;
-				concat_view(&cam->view, &pose->world[cur_bone], &mv);
-				MulMatrix0(&light_mtx, &mv, &lm);
-				gte_SetLightMatrix(&lm);
+			if (unlit) {
+				*(uint32_t *)&pri->r0 = unlit_rgb;     /* texture modulated by a constant */
+			} else {
+				/* triangles are sorted by bone: reload the light matrix only
+				 * when the bone changes */
+				if (tri->bone != cur_bone) {
+					cur_bone = tri->bone;
+					concat_view(&cam->view, &pose->world[cur_bone], &mv);
+					MulMatrix0(&light_mtx, &mv, &lm);
+					gte_SetLightMatrix(&lm);
+				}
+				gte_ldv0(&tri->nx);
+				gte_ncs();
+				gte_strgb(&pri->r0);
 			}
-			gte_ldv0(&tri->nx);
-			gte_ncs();
-			gte_strgb(&pri->r0);
 			setPolyFT3(pri);
 			*(uint32_t *)&pri->x0 = c0->sxy;
 			*(uint32_t *)&pri->x1 = c1->sxy;

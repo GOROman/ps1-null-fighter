@@ -21,6 +21,7 @@ void pose_set_anim(Pose *p, int anim) {
 	p->anim = anim % n;
 	p->frame = 0;
 	p->subframe = 0;
+	p->loops = 0;
 }
 
 void pose_step(Pose *p, int display_hz) {
@@ -31,8 +32,10 @@ void pose_step(Pose *p, int display_hz) {
 	while (p->subframe >= 256) {
 		p->subframe -= 256;
 		p->frame++;
-		if (p->frame >= a->nframes)
+		if (p->frame >= a->nframes) {
 			p->frame = 0;
+			p->loops++;
+		}
 	}
 }
 

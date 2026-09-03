@@ -10,7 +10,8 @@
  *   Triangle / Cross     dolly in / out (distance)
  *   Square / Circle      zoom in / out (field of view)
  *   L1                   rotate model (yaw)
- *   R1 / START+SELECT    IK mode on / off (the dance restarts on entry)
+ *   R1                   IK mode on / off (the dance restarts on entry)
+ *   START + SELECT       fight mode (CPU vs CPU) <-> viewer
  *   L2 / R2              previous / next animation (outside IK mode)
  *   START (tap)          switch character
  *   L3 (stick click)     pause / resume animation
@@ -38,12 +39,13 @@
 #include "ik.h"
 #include "fixmath.h"
 #include "walker.h"
+#include "fight.h"
 
 #define SCREEN_XRES   320
 #define SCREEN_YRES   240
 #define CENTERX       (SCREEN_XRES >> 1)
 #define CENTERY       (SCREEN_YRES >> 1)
-#define PACKET_LEN    (128 * 1024)
+#define PACKET_LEN    (192 * 1024)
 
 typedef struct {
 	DISPENV  disp;
@@ -58,6 +60,7 @@ static char *db_nextpri;
 
 extern const uint32_t schoolgirl_bin[], schoolgirl_tim[], schoolgirl_face_tim[], schoolgirl_skirt_tim[];
 extern const uint32_t character_bin[],  character_tim[];
+extern const uint32_t schoolgirl2_bin[], schoolgirl2_tim[];
 extern const uint32_t monkey_tim[];
 
 typedef struct {
@@ -69,8 +72,9 @@ typedef struct {
 } ModelAsset;
 
 static const ModelAsset assets[] = {
-	{ character_bin,  { character_tim, 0, 0 }, 0, 0, 1 },      /* boots on the animated character */
+	{ character_bin,  { character_tim, 0, 0 }, 0, 1, 1 },      /* the animated character */
 	{ schoolgirl_bin, { schoolgirl_tim, schoolgirl_face_tim, schoolgirl_skirt_tim }, 0, 1, 0 },  /* PiP costs too much here */
+	{ schoolgirl2_bin, { schoolgirl2_tim, 0, 0 }, 0, 1, 0 },   /* Tripo rig + the blonde's animations */
 };
 #define NUM_ASSETS ((int)(sizeof(assets) / sizeof(assets[0])))
 
@@ -286,6 +290,25 @@ static char *draw_floor(const Camera *cam, uint32_t *ot, char *nextpri) {
 	return (char *)q;
 }
 
+/* Debug: the model's textures at the bottom right (above the debug text) */
+#define TEXPREV_SIZE 48
+static char *draw_texture_preview(const Renderer *r, uint32_t *ot, char *nextpri) {
+	POLY_FT4 *q = (POLY_FT4 *)nextpri;
+	for (int i = 0; i < r->ntex; i++) {
+		int x0 = SCREEN_XRES - 8 - TEXPREV_SIZE * (r->ntex - i) - 4 * (r->ntex - 1 - i);
+		int y0 = SCREEN_YRES - 44 - TEXPREV_SIZE;
+		setPolyFT4(q);
+		setRGB0(q, 128, 128, 128);
+		setXY4(q, x0, y0, x0 + TEXPREV_SIZE, y0, x0, y0 + TEXPREV_SIZE, x0 + TEXPREV_SIZE, y0 + TEXPREV_SIZE);
+		setUV4(q, 0, 0, 255, 0, 0, 255, 255, 255);
+		q->tpage = r->tpage[i];
+		q->clut  = r->clut[i];
+		addPrim(ot, q);
+		q++;
+	}
+	return (char *)q;
+}
+
 /* Profiler bar: stages stacked top to bottom at the left edge, PROF_SCALE
  * pixels per frame (263 h-blanks).  Time beyond one frame (a 30 fps frame)
  * continues in a second column to the right, so a dropped frame shows up
@@ -387,6 +410,10 @@ int main(void) {
 	Renderer renderer;
 	IKState  ik;
 	Walker   walker;
+	static Fight fight;               /* two poses: keep it off the stack */
+	static Model  fmodel[2];
+	static Renderer frender[2];
+	int mode_fight = 1;               /* boot straight into the fight */
 
 	int cur_asset = 0;
 	int model_yaw;
@@ -417,6 +444,18 @@ int main(void) {
 	renderer.cut = walker.tri_cut;
 	model_yaw = assets[cur_asset].yaw;
 	camera_init(&cam);
+	/* fight mode: the two rigged characters (same animation set), textures
+	 * on different VRAM pages, no lighting for speed */
+	/* fight: the blonde against herself (one model, one texture, no lighting
+	 * = the cheapest path); player 2 is tinted so they can be told apart */
+	static const uint32_t *const fight_tims[MAX_TEX] = { character_tim, 0, 0 };
+	model_open(&fmodel[0], character_bin);
+	model_open(&fmodel[1], character_bin);
+	renderer_init(&frender[0], fight_tims);
+	frender[1] = frender[0];
+	frender[0].shading = frender[1].shading = SHADE_NONE;
+	frender[1].unlit_rgb = 0x00c07060;                          /* bluish */
+	fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
 	prof_init();
 	pose_init(&pose, &model, find_anim(&model, "RUN"));
 
@@ -492,11 +531,50 @@ int main(void) {
 		/* START + SELECT (both held, one just pressed) toggles IK mode; the
 		 * single-button actions fire on release so the combo does not
 		 * trigger them. */
-		if (((pressed & (PAD_START | PAD_SELECT)) && (held & PAD_START) && (held & PAD_SELECT)) ||
-		    (pressed & PAD_R1)) {
-			if (held & PAD_START) combo_used = 1;
+		if ((pressed & (PAD_START | PAD_SELECT)) && (held & PAD_START) && (held & PAD_SELECT)) {
+			combo_used = 1;
+			mode_fight ^= 1;
+			if (mode_fight) {
+				renderer_init(&frender[0], fight_tims);          /* VRAM back to the fighters */
+				frender[1] = frender[0];
+				frender[0].shading = frender[1].shading = SHADE_NONE;
+				frender[1].unlit_rgb = 0x00c07060;
+				fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
+			} else {
+				renderer_init(&renderer, assets[cur_asset].tims);
+				walker_load_sprite(monkey_tim);
+				renderer.cut = walker.tri_cut;
+			}
+		}
+		if (!mode_fight && (pressed & PAD_R1)) {
 			if (ik.active) { ik_leave(&ik, &pose); dance = 0; }
 			else           { ik_enter(&ik, &model, &pose); dance = 1; dance_t = 0; }
+		}
+		if (mode_fight) {
+			/* ---- fight mode frame ------------------------------------ */
+			prof_mark(PROF_INPUT);
+			fight_update(&fight, &cam, fps >= 45 ? 60 : 30);
+			gte_SetGeomOffset(CENTERX, CENTERY);
+			gte_SetGeomScreen(cam.fov);
+			prof_mark(PROF_POSE);
+			db_nextpri = draw_floor(&cam, db[db_active].ot, db_nextpri);
+			db_nextpri = fight_draw(&fight, &cam, db[db_active].ot, db_nextpri);
+			db_nextpri = prof_draw(db[db_active].ot, db_nextpri);
+			FntPrint(fnt_fps, "FPS %2d\n", fps);
+			FntFlush(fnt_fps);
+			prof_mark(PROF_MISC);
+			display();
+			frames++;
+			fps_frames++;
+			{
+				int now = VSync(-1);
+				if (now - last_vsync >= 60) {
+					fps = fps_frames * 60 / (now - last_vsync);
+					fps_frames = 0;
+					last_vsync = now;
+				}
+			}
+			continue;
 		}
 		if (ik.active && dance) {
 			/* hip on a slow horizontal circle (5 s per turn) with a
@@ -588,6 +666,7 @@ int main(void) {
 		db_nextpri = draw_floor(&cam, db[db_active].ot, db_nextpri);
 		db_nextpri = walker_draw(&walker, &model, &renderer, render_get_cache(), db[db_active].ot, db_nextpri);
 		db_nextpri = prof_draw(db[db_active].ot, db_nextpri);
+		db_nextpri = draw_texture_preview(&renderer, db[db_active].ot, db_nextpri);
 		if (pip) {
 			/* the OT built now is drawn after the buffer swap, i.e. with the
 			 * other draw environment: its clip origin is the one DR_AREA needs */

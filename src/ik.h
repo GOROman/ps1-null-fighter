@@ -22,5 +22,7 @@ void ik_leave(IKState *s, Pose *pose);
 void ik_apply(IKState *s, const Model *m, Pose *pose, const Camera *cam);
 /* head look-at only (used every frame for characters that always face the camera) */
 void ik_look_at(const Model *m, Pose *pose, const Camera *cam);
+/* head look-at towards a point in model space */
+void ik_look_at_point(const Model *m, Pose *pose, VECTOR target);
 
 #endif

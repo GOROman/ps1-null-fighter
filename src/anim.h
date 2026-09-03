@@ -12,6 +12,9 @@ typedef struct {
 	int frame;             /* integer frame */
 	int subframe;          /* 0..255 interpolation towards frame+1 */
 	int playing;
+	int loops;             /* how many times the animation wrapped since pose_set_anim */
+	VECTOR look_smooth;    /* head look-at: filtered direction (model space) */
+	int look_init;
 	int hip_bone;          /* bone that receives hip_offset (-1: none) */
 	VECTOR hip_offset;     /* extra local translation for hip_bone (IK mode) */
 	MATRIX local[MAX_BONES];   /* bone -> parent space for the current frame */

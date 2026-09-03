@@ -45,7 +45,7 @@ function(convert_model name fbx tex)
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${ASSET_OUT}
 		COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/fbx2ps1.py
 		        ${fbx} --texture ${tex} ${args} ${face_args} --out-bin ${bin} --out-tim ${tim}
-		DEPENDS ${TOOL_DEPS} ${fbx} ${tex}
+		DEPENDS ${TOOL_DEPS} ${fbx} ${tex} ${ASSET_SRC}/character.fbx
 		COMMENT "Converting ${name} -> ${name}.bin / ${name}.tim"
 		VERBATIM
 	)
@@ -55,7 +55,14 @@ endfunction()
 convert_model(schoolgirl ${ASSET_SRC}/schoolgirl/schoolgirl.fbx ${ASSET_SRC}/schoolgirl/basecolor.jpg
               FACE SKIRT --target-tris ${MODEL_TRIS} --reatlas --autorig
               --remove-hidden 0.02 --skirt 0.39 0.49 --gen-body)
-convert_model(character ${ASSET_SRC}/character.fbx ${ASSET_SRC}/character.fbm/basecolor.jpg --front=+z)
+convert_model(character ${ASSET_SRC}/character.fbx ${ASSET_SRC}/character.fbm/basecolor.jpg --front=+z
+              --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02)
+# third character: a Tripo rig without animations - the blonde's animations
+# are transferred by bone name
+convert_model(schoolgirl2 ${ASSET_SRC}/schoolgirl2/schoolgirl2.fbx ${ASSET_SRC}/schoolgirl2/basecolor.jpg
+              --front=+z --anim-from ${ASSET_SRC}/character.fbx
+              --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02
+              --target-tris 1400 --face-weight 100 --keep-eyes --tim-slot 1)
 add_custom_command(
 	OUTPUT  ${ASSET_OUT}/monkey.tim
 	COMMAND ${CMAKE_COMMAND} -E make_directory ${ASSET_OUT}
@@ -73,6 +80,7 @@ psn00bsdk_add_executable(nullfighter GPREL
 	src/camera.c
 	src/ik.c
 	src/walker.c
+	src/fight.c
 )
 target_include_directories(nullfighter PRIVATE src)
 target_link_libraries(nullfighter PRIVATE psxgpu psxgte psxetc psxapi)
@@ -84,6 +92,8 @@ psn00bsdk_target_incbin(nullfighter PRIVATE schoolgirl_skirt_tim ${ASSET_OUT}/sc
 psn00bsdk_target_incbin(nullfighter PRIVATE character_bin  ${ASSET_OUT}/character.bin)
 psn00bsdk_target_incbin(nullfighter PRIVATE character_tim  ${ASSET_OUT}/character.tim)
 psn00bsdk_target_incbin(nullfighter PRIVATE monkey_tim     ${ASSET_OUT}/monkey.tim)
+psn00bsdk_target_incbin(nullfighter PRIVATE schoolgirl2_bin ${ASSET_OUT}/schoolgirl2.bin)
+psn00bsdk_target_incbin(nullfighter PRIVATE schoolgirl2_tim ${ASSET_OUT}/schoolgirl2.tim)
 
 psn00bsdk_add_cd_image(
 	iso
