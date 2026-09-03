@@ -365,7 +365,7 @@ static void fighter_ai(Fight *fg, int i) {
 		/* active window per attack (from the impact frames of the clips):
 		 * keeps checking until it connects or the swing is over */
 		int hit_from = f->attack == FA_PUNCH ? 18 : f->attack == FA_KICK ? 28 : 20;
-		int hit_to   = f->attack == FA_SPECIAL ? 88 : f->attack == FA_KICK ? 70 : 60;
+		int hit_to   = f->attack == FA_SPECIAL ? 88 : f->attack == FA_KICK ? 75 : 60;
 		if (f->attack == FA_SPECIAL && pct >= 10 && pct <= 88)
 			f->x += dir * 30 * g_step;                     /* the spinning bird kick travels */
 		else if (f->combo_i > 0 && !f->hit_done && d > MIN_DIST + 100)
@@ -379,7 +379,9 @@ static void fighter_ai(Fight *fg, int i) {
 			VECTOR spt = strike_point(f, dir);
 			int ddx = spt.vx - o->x, ddz = spt.vz - o->z;
 			int limb_hit = (ddx * ddx + ddz * ddz) < 450 * 450 && spt.vy < 0 && spt.vy > -3900;
-			int range_hit = d <= reach_of(f->attack) - (f->attack == FA_SPECIAL ? 0 : 300);
+			if (f->attack == FA_KICK && spt.vy > -1400)
+				limb_hit = 0;                               /* kicks land high: foot above the waist */
+			int range_hit = f->attack == FA_KICK ? 0 : d <= reach_of(f->attack) - (f->attack == FA_SPECIAL ? 0 : 300);
 			if ((limb_hit || range_hit) && o->state != FS_KO && o->state != FS_DOWN) {
 				f->hit_done = 1;
 				f->rehit_at = pct + 22;
