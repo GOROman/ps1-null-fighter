@@ -960,7 +960,7 @@ def synth_sbk_clip(nb, parents, bind_local, ik, verbose=True, seconds=1.4, spins
 def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=False, texture=None,
             autorig=False, front=(0, 0, 1), face_tex=False, dump_uv=None, hidden_dist=0.0,
             double_sided=None, gen_skirt=False, gen_body=False, anim_from=None, keep_face=False,
-            face_weight=1.0, keep_eyes=False, align_clips=True, synth_sbk=False):
+            face_weight=1.0, keep_eyes=False, align_clips=True, synth_sbk=False, synth_moves=False):
     global C_FBX_TO_PS1
     if scene.up_axis == 2:
         C_FBX_TO_PS1 = C_ZUP_TO_PS1 * np.array([[1], [scene.up_sign], [1]])
@@ -1274,6 +1274,13 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
     # ---- synthesized special: Chun-Li style spinning bird kick ------------
     if synth_sbk and ik_hint is not None and ik_hint["chains"][2] and ik_hint["chains"][3]:
         anims.append(synth_sbk_clip(nb, parents, bind_local, ik_hint, verbose))
+    if synth_moves and ik_hint is not None and ik_hint["chains"][2] and ik_hint["chains"][3]:
+        import moves as mv
+        have = {a["name"] for a in anims}
+        for m in mv.MOVES + mv.EXTRAS:
+            if "keys" in m and m["name"] not in have:
+                anims.append(mv.synth_move(m, nb, parents, bind_local, bone_names, ik_hint, UNIT_SCALE, SAMPLE_FPS,
+                                           mat_to_quat, verbose))
 
     # translation-animated bones: translation varies (within an anim or vs bind)
     trans_animated = np.zeros(nb, dtype=bool)
@@ -1583,6 +1590,8 @@ def main():
                     help="never decimate the face (front half of the head below the hairline)")
     ap.add_argument("--tim-slot", type=int, default=0,
                     help="VRAM slot of the body texture (0: page 640, 1: page 768) so two characters can be loaded")
+    ap.add_argument("--synth-moves", action="store_true",
+                    help="add the procedural move clips of tools/moves.py to a rigged character")
     ap.add_argument("--synth-sbk", action="store_true",
                     help="add a procedural spinning bird kick clip ('sbk') to a rigged character")
     ap.add_argument("--keep-eyes", action="store_true",
@@ -1625,7 +1634,7 @@ def main():
                     autorig=args.autorig, face_tex=args.face_tex, dump_uv=args.dump_uv,
                     hidden_dist=args.remove_hidden, double_sided=args.double_sided, gen_skirt=args.gen_skirt,
                     gen_body=args.gen_body, keep_face=args.keep_face, face_weight=args.face_weight,
-                    keep_eyes=args.keep_eyes, synth_sbk=args.synth_sbk,
+                    keep_eyes=args.keep_eyes, synth_sbk=args.synth_sbk, synth_moves=args.synth_moves,
                     anim_from=Scene(args.anim_from, drop_bones=drop) if args.anim_from else None,
                     front={"+z": (0, 0, 1), "-z": (0, 0, -1), "+x": (1, 0, 0), "-x": (-1, 0, 0)}[args.front])
     textures = model["textures"]

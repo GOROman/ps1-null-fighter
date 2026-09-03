@@ -60,7 +60,7 @@ static char *db_nextpri;
 
 extern const uint32_t schoolgirl_bin[], schoolgirl_tim[], schoolgirl_face_tim[], schoolgirl_skirt_tim[];
 extern const uint32_t character_bin[],  character_tim[], character_lo_bin[];
-extern const uint32_t schoolgirl2_bin[], schoolgirl2_tim[];
+extern const uint32_t schoolgirl2_bin[], schoolgirl2_tim[], schoolgirl2_lo_bin[];
 extern const uint32_t monkey_tim[];
 
 typedef struct {
@@ -446,15 +446,15 @@ int main(void) {
 	camera_init(&cam);
 	/* fight mode: the two rigged characters (same animation set), textures
 	 * on different VRAM pages, no lighting for speed */
-	/* fight: the blonde against herself (one model, one texture, no lighting
-	 * = the cheapest path); player 2 is tinted so they can be told apart */
+	/* fight: the blonde (P1) against the third character (P2), light 600
+	 * triangle versions, one texture each, no lighting */
 	static const uint32_t *const fight_tims[MAX_TEX] = { character_tim, 0, 0 };
-	model_open(&fmodel[0], character_lo_bin);           /* 600-triangle version, same texture */
-	model_open(&fmodel[1], character_lo_bin);
+	static const uint32_t *const fight_tims2[MAX_TEX] = { schoolgirl2_tim, 0, 0 };
+	model_open(&fmodel[0], character_lo_bin);
+	model_open(&fmodel[1], schoolgirl2_lo_bin);
 	renderer_init(&frender[0], fight_tims);
-	frender[1] = frender[0];
+	renderer_init(&frender[1], fight_tims2);
 	frender[0].shading = frender[1].shading = SHADE_NONE;
-	frender[1].unlit_rgb = 0x00c07060;                          /* bluish */
 	fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
 	prof_init();
 	pose_init(&pose, &model, find_anim(&model, "RUN"));
@@ -536,9 +536,8 @@ int main(void) {
 			mode_fight ^= 1;
 			if (mode_fight) {
 				renderer_init(&frender[0], fight_tims);          /* VRAM back to the fighters */
-				frender[1] = frender[0];
+				renderer_init(&frender[1], fight_tims2);
 				frender[0].shading = frender[1].shading = SHADE_NONE;
-				frender[1].unlit_rgb = 0x00c07060;
 				fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
 			} else {
 				renderer_init(&renderer, assets[cur_asset].tims);

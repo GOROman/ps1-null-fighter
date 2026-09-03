@@ -18,7 +18,8 @@ set(ASSET_OUT   ${PROJECT_BINARY_DIR}/assets)
 set(MODEL_TRIS "1150" CACHE STRING "schoolgirl: target triangle count (0 = no decimation)")
 set(TOOL_DEPS ${PROJECT_SOURCE_DIR}/tools/fbx2ps1.py ${PROJECT_SOURCE_DIR}/tools/fbxparse.py
               ${PROJECT_SOURCE_DIR}/tools/meshopt.py ${PROJECT_SOURCE_DIR}/tools/autorig.py
-              ${PROJECT_SOURCE_DIR}/tools/sprite.py ${PROJECT_SOURCE_DIR}/tools/bodygen.py)
+              ${PROJECT_SOURCE_DIR}/tools/sprite.py ${PROJECT_SOURCE_DIR}/tools/bodygen.py
+              ${PROJECT_SOURCE_DIR}/tools/moves.py)
 
 # convert_model(name fbx texture [FACE] extra-args...): FACE also writes
 # <name>_face.tim (second texture page for the face)
@@ -56,17 +57,22 @@ convert_model(schoolgirl ${ASSET_SRC}/schoolgirl/schoolgirl.fbx ${ASSET_SRC}/sch
               FACE SKIRT --target-tris ${MODEL_TRIS} --reatlas --autorig
               --remove-hidden 0.02 --skirt 0.39 0.49 --gen-body)
 convert_model(character ${ASSET_SRC}/character.fbx ${ASSET_SRC}/character.fbm/basecolor.jpg --front=+z
-              --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02 --synth-sbk)
+              --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02 --synth-sbk --synth-moves)
 # fight mode: a light version of the blonde (two of them must fit in a frame)
 convert_model(character_lo ${ASSET_SRC}/character.fbx ${ASSET_SRC}/character.fbm/basecolor.jpg --front=+z
               --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02
-              --target-tris 600 --face-weight 100 --keep-eyes --synth-sbk)
+              --target-tris 600 --face-weight 100 --keep-eyes --synth-sbk --synth-moves)
 # third character: a Tripo rig without animations - the blonde's animations
 # are transferred by bone name
 convert_model(schoolgirl2 ${ASSET_SRC}/schoolgirl2/schoolgirl2.fbx ${ASSET_SRC}/schoolgirl2/basecolor.jpg
               --front=+z --anim-from ${ASSET_SRC}/character.fbx
               --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02
-              --target-tris 1400 --face-weight 100 --keep-eyes --tim-slot 1 --synth-sbk)
+              --target-tris 1400 --face-weight 100 --keep-eyes --tim-slot 1 --synth-sbk --synth-moves)
+# fight mode P2: light version of the third character
+convert_model(schoolgirl2_lo ${ASSET_SRC}/schoolgirl2/schoolgirl2.fbx ${ASSET_SRC}/schoolgirl2/basecolor.jpg
+              --front=+z --anim-from ${ASSET_SRC}/character.fbx
+              --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02
+              --target-tris 540 --face-weight 4 --tim-slot 1 --synth-sbk --synth-moves)
 add_custom_command(
 	OUTPUT  ${ASSET_OUT}/monkey.tim
 	COMMAND ${CMAKE_COMMAND} -E make_directory ${ASSET_OUT}
@@ -99,6 +105,17 @@ psn00bsdk_target_incbin(nullfighter PRIVATE monkey_tim     ${ASSET_OUT}/monkey.t
 psn00bsdk_target_incbin(nullfighter PRIVATE character_lo_bin ${ASSET_OUT}/character_lo.bin)
 psn00bsdk_target_incbin(nullfighter PRIVATE schoolgirl2_bin ${ASSET_OUT}/schoolgirl2.bin)
 psn00bsdk_target_incbin(nullfighter PRIVATE schoolgirl2_tim ${ASSET_OUT}/schoolgirl2.tim)
+psn00bsdk_target_incbin(nullfighter PRIVATE schoolgirl2_lo_bin ${ASSET_OUT}/schoolgirl2_lo.bin)
+# move table shared by tools/moves.py (clips) and src/fight.c (game rules)
+add_custom_command(
+	OUTPUT  ${PROJECT_SOURCE_DIR}/src/moves_table.h
+	COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/moves.py ${PROJECT_SOURCE_DIR}/src/moves_table.h
+	DEPENDS ${PROJECT_SOURCE_DIR}/tools/moves.py
+	COMMENT "Generating moves_table.h"
+	VERBATIM
+)
+add_custom_target(moves_table DEPENDS ${PROJECT_SOURCE_DIR}/src/moves_table.h)
+add_dependencies(nullfighter moves_table)
 
 psn00bsdk_add_cd_image(
 	iso

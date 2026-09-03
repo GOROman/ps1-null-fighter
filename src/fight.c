@@ -13,15 +13,11 @@
 
 #define ROUND_FRAMES   (60 * 60)      /* 60 s */
 #define START_X        1500           /* fighters start at +-START_X */
-#define REACH_PUNCH    1600
-#define REACH_KICK     1700
-#define REACH_SPECIAL  1650
 #define APPROACH_STOP  1200
 #define MIN_DIST       1000
 #define RUN_SPEED      44
 #define WALK_SPEED     20
 #define BACKSTEP_SPEED 48
-#define ATTACK_HIT_AT  40             /* % of the attack animation where it lands */
 #define FLOOR_OTZ      (OT_LEN - 1)
 
 /* ---------------------------------------------------------------------- */
@@ -117,7 +113,22 @@ static int find_anim(const Model *m, const char *name) {
 		while (name[k] && (a[k] | 0x20) == (name[k] | 0x20)) k++;
 		if (!name[k]) return i;
 	}
-	return 0;
+	return -1;
+}
+
+static int find_anim_or(const Model *m, const char *name, int dflt) {
+	int a = find_anim(m, name);
+	return a < 0 ? dflt : a;
+}
+
+static int move_index(const char *name) {
+	for (int i = 0; i < NUM_MOVES; i++) {
+		const char *a = MOVES[i].name;
+		int k = 0;
+		while (name[k] && a[k] == name[k]) k++;
+		if (!name[k] && !a[k]) return i;
+	}
+	return -1;
 }
 
 static void set_anim(Fighter *f, int anim) {
@@ -130,17 +141,16 @@ static void fighter_setup(Fighter *f, const Model *m, Renderer *r) {
 	f->model = m;
 	f->renderer = r;
 	pose_init(&f->pose, m, 0);
-	f->anim_idle    = find_anim(m, "idle");
-	f->anim_run     = find_anim(m, "run");
-	f->anim_punch   = find_anim(m, "box");
-	f->anim_kick    = find_anim(m, "front_kick");
-	f->anim_special = find_anim(m, "sbk");            /* spinning bird kick if the model has it */
-	if (f->anim_special == 0) f->anim_special = find_anim(m, "shoot");
-	f->anim_hit     = find_anim(m, "hit_to_body");
-	f->anim_ko      = find_anim(m, "defeat");
-	f->anim_win     = find_anim(m, "laugh");
-	f->anim_jump    = find_anim(m, "jump");
-	f->anim_fall    = find_anim(m, "fall");
+	f->anim_idle = find_anim_or(m, "idle", 0);
+	f->anim_run  = find_anim_or(m, "run", f->anim_idle);
+	f->anim_hit  = find_anim_or(m, "hit_to_body", f->anim_idle);
+	f->anim_ko   = find_anim_or(m, "defeat", f->anim_idle);
+	f->anim_win  = find_anim_or(m, "laugh", f->anim_idle);
+	f->anim_jump = find_anim_or(m, "jump", f->anim_idle);
+	f->anim_fall = find_anim_or(m, "fall", f->anim_ko);
+	f->anim_guard = find_anim_or(m, "guard", f->anim_idle);
+	for (int i = 0; i < NUM_MOVES; i++)
+		f->move_anim[i] = find_anim(m, MOVES[i].clip);       /* -1: this rig lacks the clip */
 }
 
 static void fighter_reset(Fighter *f, int side) {
@@ -154,12 +164,42 @@ static void fighter_reset(Fighter *f, int side) {
 	f->state = FS_IDLE;
 	f->cooldown = 30;
 	f->hit_done = 0;
+	f->yaw_corr = 0;
+	f->kb = 0;
+	f->guard_t = 0;
+	f->hits_taken = 0;
 	set_anim(f, f->anim_idle);
+}
+
+/* ---- combos ---------------------------------------------------------- */
+/* attack chains by move name; resolved to move indices at init */
+static const char *const COMBO_NAMES[][4] = {
+	{ "jab", "jab", "knee", "high_kick" },      /* P-P-K: the kick lands twice (knee, then high) */
+	{ "jab", "straight", 0, 0 },
+	{ "jab", "jab", "roundhouse", 0 },
+	{ "hook", "uppercut", 0, 0 },
+	{ "elbow", "knee", "high_kick", 0 },
+	{ "backfist", "back_kick", 0, 0 },
+	{ "front_kick", "spin_kick", 0, 0 },
+	{ "jab", "palm", 0, 0 },
+	{ "knee", "high_kick", 0, 0 },
+	{ "straight", "hammer", 0, 0 },
+	{ "jab", "jab", "knee", "high_kick" },
+	{ "hook", "roundhouse", 0, 0 },
+};
+#define NCOMBOS ((int)(sizeof(COMBO_NAMES) / sizeof(COMBO_NAMES[0])))
+static int COMBOS[NCOMBOS][4];
+
+static void resolve_combos(void) {
+	for (int c = 0; c < NCOMBOS; c++)
+		for (int k = 0; k < 4; k++)
+			COMBOS[c][k] = COMBO_NAMES[c][k] ? move_index(COMBO_NAMES[c][k]) : -1;
 }
 
 void fight_init(Fight *fg, const Model *m0, Renderer *r0, const Model *m1, Renderer *r1) {
 	memset(fg, 0, sizeof(*fg));
 	fg->rng = 0xC0FFEE;
+	resolve_combos();
 	fighter_setup(&fg->f[0], m0, r0);
 	fighter_setup(&fg->f[1], m1, r1);
 	fighter_reset(&fg->f[0], 0);
@@ -182,73 +222,65 @@ static void start_round(Fight *fg) {
 	fg->phase_t = 0;
 	fg->timer = ROUND_FRAMES;
 	fg->winner = -1;
+	fg->ringout = 0;
 }
 
-/* ---- AI ------------------------------------------------------------------ */
-/* attack chains: punch-punch-kick and friends */
-static const int COMBOS[][4] = {
-	{ FA_PUNCH, -1, -1, -1 },
-	{ FA_KICK, -1, -1, -1 },
-	{ FA_PUNCH, FA_PUNCH, FA_KICK, -1 },
-	{ FA_PUNCH, FA_KICK, -1, -1 },
-	{ FA_KICK, FA_PUNCH, -1, -1 },
-	{ FA_PUNCH, FA_PUNCH, FA_PUNCH, FA_KICK },
-	{ FA_KICK, FA_KICK, -1, -1 },
-	{ FA_KICK, FA_KICK, -1, -1 },
-};
-#define NCOMBOS ((int)(sizeof(COMBOS) / sizeof(COMBOS[0])))
+/* ---- attacks --------------------------------------------------------- */
+static int g_step = 1;      /* movement multiplier: 1 at 60 Hz, 2 at 30 Hz */
 
-static void start_attack(Fighter *f, int attack) {
-	f->attack = attack;
+static void start_attack(Fight *fg, int i, int move) {
+	Fighter *f = &fg->f[i];
+	if (move < 0 || f->move_anim[move] < 0) move = 0;
+	const MoveDef *mv = &MOVES[move];
+	f->move = move;
 	f->state = FS_ATTACK;
 	f->hit_done = 0;
-	set_anim(f, attack == FA_PUNCH ? f->anim_punch : attack == FA_KICK ? f->anim_kick : f->anim_special);
-	f->pose.speed = attack == FA_SPECIAL ? 256 : attack == FA_PUNCH ? 768 : 512;   /* punches fastest */
-	if (attack == FA_KICK && f->combo_i > 0) {
+	f->rehit_at = 0;
+	set_anim(f, f->move_anim[move]);
+	f->pose.speed = mv->speed;
+	if (mv->cat == CAT_KICK && f->combo_i > 0) {
 		/* chained kick: skip the wind-up */
 		const ModelAnim *a = &f->model->anims[f->pose.anim];
 		f->pose.frame = (a->nframes * 20) / 100;
 	}
-	/* aim: evaluate the impact pose once and turn the body so the striking
-	 * foot / hand swings along the line to the opponent instead of beside it */
-	f->yaw_corr = 0;
-	if (attack != FA_SPECIAL && f->model->ik) {
-		const ModelAnim *a = &f->model->anims[f->pose.anim];
-		int save_frame = f->pose.frame, save_sub = f->pose.subframe;
-		f->pose.frame = (a->nframes * (attack == FA_KICK ? 45 : 35)) / 100;
-		f->pose.subframe = 0;
-		pose_eval(&f->pose);
-		const ModelIK *ik = f->model->ik;
-		int ca = attack == FA_KICK ? IK_LEG_L : IK_ARM_L, cb = ca + 1;
-		int best_b = -1, best_fwd = -1;
-		for (int c = ca; c <= cb; c++) {
-			if (ik->chains[c].upper < 0) continue;
-			int b = ik->chains[c].end >= 0 ? ik->chains[c].end : ik->chains[c].lower;
-			int fwd = -f->pose.world[b].t[2];               /* model forward is -z */
-			if (fwd > best_fwd) { best_fwd = fwd; best_b = b; }
-		}
-		if (best_b >= 0 && best_fwd > 200) {
-			int lat = f->pose.world[best_b].t[0];
-			f->yaw_corr = (lat * 652) / best_fwd;          /* atan(lat / fwd) in 4096 units, small angles */
-			if (f->yaw_corr > 700) f->yaw_corr = 700;
-			if (f->yaw_corr < -700) f->yaw_corr = -700;
-		}
-		f->pose.frame = save_frame;
-		f->pose.subframe = save_sub;
+	fg->name_t = 50;
+	fg->name_move = move;
+	fg->name_side = i;
+}
+
+/* start a combo (list of move indices, -1 terminated) */
+static void start_combo(Fight *fg, int i, const int *c) {
+	Fighter *f = &fg->f[i];
+	f->combo_len = 0;
+	for (int k = 0; k < 4 && c[k] >= 0; k++)
+		if (f->move_anim[c[k]] >= 0) f->combo[f->combo_len++] = c[k];
+	if (f->combo_len == 0) f->combo[f->combo_len++] = 0;
+	f->combo_i = 0;
+	f->last_backstep = 0;
+	start_attack(fg, i, f->combo[0]);
+}
+
+static void start_single(Fight *fg, int i, int move) {
+	int c[2] = { move, -1 };
+	start_combo(fg, i, c);
+}
+
+/* a random move of a category that reaches distance d (or -1) */
+static int pick_move(Fight *fg, const Fighter *f, int cat, int d) {
+	int cand[NUM_MOVES], n = 0;
+	for (int i = 0; i < NUM_MOVES; i++) {
+		if (MOVES[i].cat != cat || f->move_anim[i] < 0) continue;
+		if (MOVES[i].reach + MOVES[i].travel * 20 < d + 100) continue;
+		cand[n++] = i;
 	}
+	return n ? cand[rnd(fg) % n] : -1;
 }
-
-static int reach_of(int attack) {
-	return attack == FA_PUNCH ? REACH_PUNCH : attack == FA_KICK ? REACH_KICK : REACH_SPECIAL;
-}
-
-static int g_step = 1;      /* movement multiplier: 1 at 60 Hz, 2 at 30 Hz */
 
 /* world position of a bone joint (fighter placement applied) */
-static VECTOR bone_world(const Fighter *f, int bone) {
+static VECTOR bone_world_yaw(const Fighter *f, int bone, int yaw) {
 	const MATRIX *w = &f->pose.world[bone];
 	VECTOR h = vec(w->t[0], w->t[1], w->t[2]);
-	SVECTOR r = { 0, f->yaw, 0, 0 };
+	SVECTOR r = { 0, yaw & 4095, 0, 0 };
 	MATRIX m4;
 	RotMatrix(&r, &m4);
 	VECTOR out;
@@ -256,29 +288,43 @@ static VECTOR bone_world(const Fighter *f, int bone) {
 	return vec(out.vx + f->x, out.vy, out.vz + f->z);
 }
 
-/* the hand (punch / special) or foot (kick) closest to the opponent */
-static VECTOR strike_point(const Fighter *f, int dir) {
+/* the bone that strikes for the current move: the hand / foot / knee
+ * (or head) that is furthest towards the opponent */
+static int strike_bone(const Fighter *f, int dir) {
 	const ModelIK *ik = f->model->ik;
-	int ca = f->attack == FA_KICK ? IK_LEG_L : IK_ARM_L;
-	int cb = f->attack == FA_KICK ? IK_LEG_R : IK_ARM_R;
-	VECTOR best = vec(f->x + dir * 500, -2500, f->z);
-	int best_d = -1 << 30;
-	for (int c = ca; c <= cb; c++) {
-		if (!ik || ik->chains[c].upper < 0) continue;
-		int b = ik->chains[c].end >= 0 ? ik->chains[c].end : ik->chains[c].lower;
-		VECTOR p = bone_world(f, b);
+	int limb = MOVES[f->move].limb;
+	if (!ik) return 0;
+	int cand[5], n = 0;
+	if (limb == LIMB_HAND || limb == LIMB_FOOT) {
+		int ca = limb == LIMB_FOOT ? IK_LEG_L : IK_ARM_L;
+		for (int c = ca; c <= ca + 1; c++) {
+			if (ik->chains[c].upper < 0) continue;
+			cand[n++] = ik->chains[c].end >= 0 ? ik->chains[c].end : ik->chains[c].lower;
+		}
+	} else {
+		for (int c = IK_LEG_L; c <= IK_LEG_R; c++)
+			if (ik->chains[c].upper >= 0) cand[n++] = ik->chains[c].lower;   /* knees */
+		if (ik->head >= 0) cand[n++] = ik->head;
+		cand[n++] = ik->hip;
+	}
+	int best = cand[0], best_d = -1 << 30;
+	for (int k = 0; k < n; k++) {
+		VECTOR p = bone_world_yaw(f, cand[k], f->yaw);
 		int dd = (p.vx - f->x) * dir;
-		if (dd > best_d) { best_d = dd; best = p; }
+		if (dd > best_d) { best_d = dd; best = cand[k]; }
 	}
 	return best;
 }
 
+/* ---- AI ----------------------------------------------------------------- */
 static void fighter_ai(Fight *fg, int i) {
 	Fighter *f = &fg->f[i], *o = &fg->f[1 - i];
 	int dir = (o->x > f->x) ? 1 : -1;
 	int d = (o->x - f->x) * dir;                        /* distance, positive */
-	f->yaw = dir > 0 ? 3072 : 1024;                     /* always face the opponent */
-	if (f->state == FS_ATTACK) f->yaw = (f->yaw + f->yaw_corr) & 4095;
+	int base_yaw = dir > 0 ? 3072 : 1024;               /* always face the opponent */
+	f->yaw = base_yaw;
+	if (f->state == FS_ATTACK) f->yaw = (base_yaw + f->yaw_corr) & 4095;
+	else f->yaw_corr = 0;
 	const ModelAnim *a = &f->model->anims[f->pose.anim];
 
 	switch (f->state) {
@@ -299,43 +345,51 @@ static void fighter_ai(Fight *fg, int i) {
 		int o_recovery = o->state == FS_ATTACK && opct >= 55;         /* whiffed / recovering */
 		int o_stunned  = o->state == FS_HIT;
 		int o_backing  = o->state == FS_RETREAT || o->state == FS_BACKSTEP;
-		int in_punch   = d <= REACH_PUNCH - 150;          /* commit only with margin */
-		int in_kick    = d <= REACH_KICK - 200;
+		int in_punch   = d <= 1450;                        /* commit only with margin */
+		int in_kick    = d <= 1800;
 		uint32_t r = rnd(fg) % 100;
 
 		if (f->special_cd > 0) f->special_cd -= g_step;
 		if (f->plan_special) {
-			/* retreat done: unleash the spinning bird kick */
+			/* retreat done: unleash a special (the spinning bird kick half the time) */
 			f->plan_special = 0;
 			f->special_cd = 10 * 60;
-			f->combo_len = 1; f->combo[0] = FA_SPECIAL; f->combo_i = 0;
-			start_attack(f, FA_SPECIAL);
-		} else if (f->hp < 35 && f->hp < o->hp && f->special_cd <= 0 && d <= REACH_SPECIAL + 600 &&
+			int m = (r < 50) ? move_index("sbk") : pick_move(fg, f, CAT_SPECIAL, d);
+			if (m < 0 || f->move_anim[m] < 0) m = pick_move(fg, f, CAT_KICK, 0);
+			start_single(fg, i, m);
+		} else if (f->hp < 35 && f->hp < o->hp && f->special_cd <= 0 && d <= 2400 &&
 		           o->state != FS_ATTACK) {
 			/* losing: back off a few steps, then the special covers the distance */
 			f->plan_special = 1;
 			f->state = FS_RETREAT;
 			f->cooldown = 16;
 			set_anim(f, f->anim_run); f->pose.speed = -128;
+		} else if (o->state == FS_GUARD && in_kick && r < 70) {
+			/* they are blocking: go under the guard with a low attack */
+			int low = -1, tries = 8;
+			while (low < 0 && tries--) {
+				int m = pick_move(fg, f, CAT_KICK, d);
+				if (m >= 0 && (MOVES[m].height == H_LOW || (MOVES[m].flags & MF_KNOCKDOWN))) low = m;
+			}
+			if (low < 0) low = move_index("sweep");
+			start_single(fg, i, low);
 		} else if (o_recovery || o_stunned) {
 			/* punish window: rush in with a combo (kick from farther out) */
 			if (in_punch) {
-				const int *c = COMBOS[2];                  /* P-P-K */
-				f->combo_len = 0;
-				for (int k = 0; k < 4 && c[k] >= 0; k++) f->combo[f->combo_len++] = c[k];
-				f->combo_i = 0; f->last_backstep = 0;
-				start_attack(f, f->combo[0]);
+				start_combo(fg, i, COMBOS[r < 50 ? 0 : rnd(fg) % NCOMBOS]);
 			} else if (in_kick) {
-				f->combo_len = 1; f->combo[0] = FA_KICK; f->combo_i = 0; f->last_backstep = 0;
-				start_attack(f, FA_KICK);
+				start_single(fg, i, pick_move(fg, f, CAT_KICK, d));
 			} else {
 				f->state = FS_APPROACH; set_anim(f, f->anim_run);
 			}
 		} else if (o_startup && in_kick) {
-			/* the opponent is swinging: either beat it with a fast punch or get out */
-			if (in_punch && r < aggr) {
-				f->combo_len = 1; f->combo[0] = FA_PUNCH; f->combo_i = 0;
-				start_attack(f, FA_PUNCH);
+			/* the opponent is swinging: guard, beat it with a fast punch, or get out */
+			if (r >= aggr && r < aggr + 35) {
+				f->state = FS_GUARD;
+				f->guard_t = 24 + (rnd(fg) % 16);
+				set_anim(f, f->anim_guard);
+			} else if (in_punch && r < aggr) {
+				start_single(fg, i, r < aggr / 2 ? move_index("jab") : pick_move(fg, f, CAT_PUNCH, d));
 			} else if (!f->last_backstep) {
 				f->state = FS_BACKSTEP; f->last_backstep = 1; set_anim(f, f->anim_jump);
 			} else {
@@ -343,6 +397,11 @@ static void fighter_ai(Fight *fg, int i) {
 				set_anim(f, f->anim_run); f->pose.speed = -128;
 			}
 		} else if (d > APPROACH_STOP + 1200) {
+			if (r < 12 && f->special_cd <= 0) {
+				/* surprise: a travelling special from far out */
+				int m = pick_move(fg, f, CAT_SPECIAL, d);
+				if (m >= 0) { f->special_cd = 6 * 60; start_single(fg, i, m); break; }
+			}
 			f->state = FS_APPROACH; set_anim(f, f->anim_run);
 		} else if (d > APPROACH_STOP + 200) {
 			/* mid range: walk in, or hang back and wait for a whiff when defensive */
@@ -355,14 +414,11 @@ static void fighter_ai(Fight *fg, int i) {
 			f->cooldown = 10;                              /* let them get up */
 		} else if (in_punch && r < aggr) {
 			/* close and the opponent is idle: open with a combo (mix-ups) */
-			const int *c = r < aggr / 2 ? COMBOS[2] : COMBOS[rnd(fg) % NCOMBOS];
-			f->combo_len = 0;
-			for (int k = 0; k < 4 && c[k] >= 0; k++) f->combo[f->combo_len++] = c[k];
-			f->combo_i = 0; f->last_backstep = 0;
-			start_attack(f, f->combo[0]);
+			if (r < aggr / 3) start_combo(fg, i, COMBOS[0]);
+			else if (r < (aggr * 2) / 3) start_combo(fg, i, COMBOS[rnd(fg) % NCOMBOS]);
+			else start_single(fg, i, pick_move(fg, f, rnd(fg) % 3 ? CAT_PUNCH : CAT_KICK, d));
 		} else if (in_kick && !in_punch && r < aggr) {
-			f->combo_len = 1; f->combo[0] = FA_KICK; f->combo_i = 0; f->last_backstep = 0;
-			start_attack(f, FA_KICK);                      /* kick range poke */
+			start_single(fg, i, pick_move(fg, f, CAT_KICK, d));   /* kick range poke */
 		} else if (!f->last_backstep && r < 85) {
 			/* bait: step out so the opponent whiffs, then punish */
 			f->state = FS_RETREAT; f->last_backstep = 1;
@@ -374,6 +430,15 @@ static void fighter_ai(Fight *fg, int i) {
 		}
 		break;
 	}
+	case FS_GUARD:
+		/* hold the guard while the opponent is still swinging, then relax */
+		if (--f->guard_t <= 0 && o->state != FS_ATTACK) {
+			f->state = FS_IDLE;
+			f->cooldown = 2 + (rnd(fg) % 6);
+			set_anim(f, f->anim_idle);
+		}
+		if (f->guard_t < -60) { f->state = FS_IDLE; set_anim(f, f->anim_idle); }
+		break;
 	case FS_WALK:
 		if (d > APPROACH_STOP) {
 			f->x += dir * WALK_SPEED * g_step;
@@ -391,6 +456,15 @@ static void fighter_ai(Fight *fg, int i) {
 			set_anim(f, f->anim_idle);
 		}
 		break;
+	case FS_BACKSTEP:
+		/* one hop backwards on the jump clip */
+		f->x -= dir * BACKSTEP_SPEED * g_step;
+		if (f->pose.loops > 0) {
+			f->state = FS_IDLE;
+			f->cooldown = 6 + (rnd(fg) % 10);
+			set_anim(f, f->anim_idle);
+		}
+		break;
 	case FS_APPROACH:
 		if (d > APPROACH_STOP + 600) {
 			f->x += dir * RUN_SPEED * g_step;
@@ -405,66 +479,100 @@ static void fighter_ai(Fight *fg, int i) {
 		}
 		break;
 	case FS_ATTACK: {
+		const MoveDef *mv = &MOVES[f->move];
 		int pct = a->nframes > 1 ? (f->pose.frame * 100) / (a->nframes - 1) : 100;
-		/* active window per attack (from the impact frames of the clips):
-		 * keeps checking until it connects or the swing is over */
-		int hit_from = f->attack == FA_PUNCH ? 18 : f->attack == FA_KICK ? 28 : 20;
-		int hit_to   = f->attack == FA_SPECIAL ? 88 : f->attack == FA_KICK ? 75 : 60;
-		if (f->attack == FA_SPECIAL && pct >= 10 && pct <= 88)
-			f->x += dir * 30 * g_step;                     /* the spinning bird kick travels */
+		int active = pct >= mv->hit_from && pct <= mv->hit_to;
+		/* travel: the move carries the body forward around its active frames */
+		if (mv->travel && pct >= mv->hit_from - 15 && pct <= mv->hit_to && d > MIN_DIST)
+			f->x += dir * mv->travel * g_step;
 		else if (f->combo_i > 0 && !f->hit_done && d > MIN_DIST + 100)
 			f->x += dir * 44 * g_step;                     /* chained attack: lunge to keep the range */
-		/* the spinning bird kick hits once per spin: re-arm every ~22% */
-		if (f->attack == FA_SPECIAL && f->hit_done && pct >= f->rehit_at)
+		/* multi-hit moves re-arm every `rehit` percent */
+		if (mv->rehit && f->hit_done && pct >= f->rehit_at)
 			f->hit_done = 0;
-		if (!f->hit_done && pct >= hit_from && pct <= hit_to) {
-			/* geometric test: the striking hand / foot inside the opponent's
-			 * body cylinder (radius 450, floor to head), or the plain range */
-			VECTOR spt = strike_point(f, dir);
-			int ddx = spt.vx - o->x, ddz = spt.vz - o->z;
-			int limb_hit = (ddx * ddx + ddz * ddz) < 450 * 450 && spt.vy < 0 && spt.vy > -3900;
-			if (f->attack == FA_KICK && spt.vy > -1400)
-				limb_hit = 0;                               /* kicks land high: foot above the waist */
-			int range_hit = f->attack == FA_KICK ? 0 : d <= reach_of(f->attack) - (f->attack == FA_SPECIAL ? 0 : 300);
+		/* aim: turn towards the opponent so the striking limb swings through
+		 * their axis (look-at correction, measured on the actual pose) */
+		int sb = strike_bone(f, dir);
+		VECTOR spt = bone_world_yaw(f, sb, f->yaw);
+		int fwd = (spt.vx - f->x) * dir;
+		if (mv->limb != LIMB_BODY && fwd > 300 && pct <= mv->hit_to) {
+			int err0 = spt.vz - o->z;
+			VECTOR alt = bone_world_yaw(f, sb, f->yaw + 32);
+			int err1 = alt.vz - o->z;
+			int step = (err0 < 0 ? -err0 : err0) > 60 ? 32 : 8;
+			if ((err1 < 0 ? -err1 : err1) < (err0 < 0 ? -err0 : err0)) f->yaw_corr += step;
+			else f->yaw_corr -= step;
+			if (f->yaw_corr >  800) f->yaw_corr =  800;
+			if (f->yaw_corr < -800) f->yaw_corr = -800;
+			f->yaw = (base_yaw + f->yaw_corr) & 4095;
+			spt = bone_world_yaw(f, sb, f->yaw);
+			fwd = (spt.vx - f->x) * dir;
+		}
+		if (!f->hit_done && active) {
+			/* the limb reaches the opponent's body: from the near surface to
+			 * well past the axis (a kick that swings through still connects) */
+			int lat = spt.vz - o->z;
+			int limb_hit = fwd >= d - 450 && fwd <= d + 1300 && (lat < 0 ? -lat : lat) < 520 &&
+			               spt.vy < 0 && spt.vy > -3900;
+			if (mv->height == H_HIGH && spt.vy > -1400) limb_hit = 0;   /* high: above the waist */
+			if (mv->height == H_LOW && spt.vy < -1100) limb_hit = 0;    /* low: near the floor */
+			int range_hit = mv->limb == LIMB_FOOT ? 0 : d <= mv->reach - 300;
 			if ((limb_hit || range_hit) && o->state != FS_KO && o->state != FS_DOWN) {
 				f->hit_done = 1;
-				f->rehit_at = pct + 22;
-				int dmg = f->attack == FA_PUNCH ? 9 : f->attack == FA_KICK ? 14 : 6;   /* sbk: small, multi hit */
+				f->rehit_at = pct + mv->rehit;
+				/* standing guard stops mid / high attacks (chip damage);
+				 * low attacks and floor-takers go through */
+				int guarded = o->state == FS_GUARD && mv->height != H_LOW && !(mv->flags & MF_KNOCKDOWN);
+				int counter = o->state == FS_ATTACK;             /* hit them during their swing */
+				int dmg = guarded ? (mv->dmg + 3) / 4 : counter ? (mv->dmg * 3) / 2 : mv->dmg;
+				if (guarded && o->hp - dmg <= 0) dmg = o->hp - 1;   /* no chip KO */
 				o->hp -= dmg;
+				if (counter && !guarded) { fg->counter_t = 50; fg->counter_side = 1 - i; }
 				/* hit effect where the strike lands: the opponent's body surface
-				 * facing the attacker, at the height of the striking hand / foot */
-				VECTOR sp = strike_point(f, dir);
+				 * facing the attacker, at the height of the striking limb */
 				int hx = o->x - dir * 280;
-				if ((sp.vx - hx) * dir > 0) hx = sp.vx;          /* limb already inside: use it */
+				if ((spt.vx - hx) * dir > 0) hx = spt.vx;          /* limb already inside: use it */
 				for (int k = 0; k < MAX_FX; k++) {
 					if (fg->fx[k].active) continue;
-					fg->fx[k].active = 1; fg->fx[k].t = 0;
-					fg->fx[k].x = hx; fg->fx[k].y = sp.vy; fg->fx[k].z = (sp.vz + o->z) / 2;
+					fg->fx[k].active = 1; fg->fx[k].t = guarded ? 8 : 0;   /* guard: small blue-ish burst */
+					fg->fx[k].x = hx; fg->fx[k].y = spt.vy; fg->fx[k].z = (spt.vz + o->z) / 2;
 					break;
 				}
-				fg->shake = 14;
-				if (o->hp <= 0) {
+				fg->shake = guarded ? 3 : 10 + mv->stop;
+				if (guarded) {
+					o->kb = dir * (mv->kb / 3);
+					o->guard_t += 6;
+					fg->hitstop = 2;
+				} else if (o->hp <= 0) {
 					o->hp = 0;
 					o->state = FS_KO;
 					set_anim(o, o->anim_ko);
+				} else if (mv->flags & (MF_KNOCKDOWN | MF_LAUNCH)) {
+					o->state = FS_DOWN;                     /* sweeps / launchers floor them */
+					o->down_phase = 0;
+					set_anim(o, o->anim_fall);
+					o->pose.speed = (mv->flags & MF_LAUNCH) ? 384 : 256;
 				} else {
 					o->state = FS_HIT;
 					set_anim(o, o->anim_hit);              /* restarts on every hit */
 					o->pose.speed = 512;
 				}
-				/* pushed away: kicks send the opponent flying */
-				int last = f->combo_i + 1 >= f->combo_len;
-				o->kb = dir * (f->attack == FA_PUNCH ? (last ? 70 : 36) : f->attack == FA_KICK ? 260 : 40);
-				fg->hitstop = f->attack == FA_PUNCH ? 5 : f->attack == FA_KICK ? 8 : 2;
-			} else if (pct > 65) {
+				if (!guarded) {
+					o->hits_taken++;
+					int last = f->combo_i + 1 >= f->combo_len;
+					o->kb = dir * (last ? mv->kb : mv->kb / 2);   /* mid-combo: keep them in reach */
+					if (mv->flags & MF_LAUNCH) o->kb = dir * (mv->kb + 120);
+					fg->hitstop = counter ? mv->stop + 4 : mv->stop;
+				}
+			} else if (pct > mv->hit_to - 8 && !mv->rehit) {
 				f->hit_done = 1;
 			}
 		}
 		/* combos cut the recovery half of each clip: chain right after the hit */
 		if (f->pose.loops > 0 || (pct >= 55 && f->combo_i + 1 < f->combo_len)) {
-			if (f->combo_i + 1 < f->combo_len && o->state != FS_KO) {
+			if (f->combo_i + 1 < f->combo_len && o->state != FS_KO && o->state != FS_DOWN) {
 				f->combo_i++;
-				start_attack(f, f->combo[f->combo_i]);
+				start_attack(fg, i, f->combo[f->combo_i]);
 			} else {
 				f->state = FS_IDLE;
 				f->cooldown = 10 + (rnd(fg) % 25);
@@ -483,6 +591,7 @@ static void fighter_ai(Fight *fg, int i) {
 				f->pose.loops = 0;
 				f->pose.speed = -320;
 			} else {                                    /* back on their feet */
+				f->hits_taken = 0;
 				f->state = FS_IDLE;
 				f->cooldown = 12 + (rnd(fg) % 16);
 				set_anim(f, f->anim_idle);
@@ -491,6 +600,7 @@ static void fighter_ai(Fight *fg, int i) {
 		break;
 	case FS_HIT:
 		if (f->pose.loops > 0) {
+			f->hits_taken = 0;
 			f->state = FS_IDLE;
 			f->cooldown = 6 + (rnd(fg) % 10);
 			set_anim(f, f->anim_idle);
@@ -508,9 +618,17 @@ static void fighter_ai(Fight *fg, int i) {
 	case FS_WIN:
 		break;
 	}
-	/* keep them apart and on the stage */
-	if (f->x < -4200) f->x = -4200;
-	if (f->x >  4200) f->x =  4200;
+	/* ring out: knocked over the stage edge while flying */
+	if ((f->x < -4200 || f->x > 4200) && f->kb && (f->state == FS_HIT || f->state == FS_DOWN) &&
+	    fg->phase == FP_FIGHTING) {
+		f->state = FS_KO;
+		f->hp = 0;
+		fg->ringout = 1;
+		set_anim(f, f->anim_fall);
+		f->kb = 0;
+	}
+	if (f->x < -4400) f->x = -4400;
+	if (f->x >  4400) f->x =  4400;
 }
 
 /* ---- camera ------------------------------------------------------------ */
@@ -681,9 +799,11 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 		pose_eval(&f->pose);
 	}
 	if (fg->hitstop > 0) fg->hitstop -= g_step;
+	if (fg->name_t > 0) fg->name_t -= g_step;
+	if (fg->counter_t > 0) fg->counter_t -= g_step;
 	for (int i = 0; i < 2; i++) {
 		Fighter *f = &fg->f[i], *o = &fg->f[1 - i];
-		if (f->state == FS_ATTACK && f->attack == FA_SPECIAL) continue;   /* inverted: no look-at */
+		if (f->state == FS_ATTACK && (MOVES[f->move].flags & MF_NOLOOK)) continue;   /* inverted: no look-at */
 		VECTOR oh = head_world(o);
 		/* into this fighter's model space: Ry(-yaw) * (p - pos) */
 		SVECTOR r = { 0, (-f->yaw) & 4095, 0, 0 };
@@ -787,15 +907,43 @@ static char *draw_hud(Fight *fg, uint32_t *ot, char *nextpri) {
 		break;
 	case FP_KO:
 		if (fg->phase_t > 5)
-			nextpri = big_text(fg->timer == 0 ? "TIME UP" : "K.O.", CENTERX, 88, 5, 255, 60, 60, ot, nextpri);
+			nextpri = big_text(fg->ringout ? "RING OUT" : fg->timer == 0 ? "TIME UP" : "K.O.", CENTERX, 88,
+			                   fg->ringout ? 4 : 5, 255, 60, 60, ot, nextpri);
 		break;
 	case FP_END: {
 		const char *s = fg->winner == 0 ? "P1 WIN" : "P2 WIN";
 		nextpri = big_text(s, CENTERX, 90, 4, 255, 220, 60, ot, nextpri);
+		if (fg->winner >= 0 && fg->f[fg->winner].hp == 100)
+			nextpri = big_text("PERFECT", CENTERX, 66, 2, 255, 255, 255, ot, nextpri);
 		break;
 	}
 	default:
 		break;
+	}
+	/* hit counter under the life bar of whoever is being juggled */
+	for (int i = 0; i < 2; i++) {
+		int n = fg->f[i].hits_taken;
+		if (n < 2 || (fg->f[i].state != FS_HIT && fg->f[i].state != FS_DOWN)) continue;
+		char hb[8];
+		int k = 0;
+		if (n >= 10) hb[k++] = '0' + n / 10;
+		hb[k++] = '0' + n % 10; hb[k++] = ' '; hb[k++] = 'H'; hb[k++] = 'I'; hb[k++] = 'T'; hb[k++] = 'S'; hb[k] = 0;
+		nextpri = big_text(hb, i ? SCREEN_XRES - 60 : 60, 40, 2, 255, 160, 40, ot, nextpri);
+	}
+	if (fg->counter_t > 0)
+		nextpri = big_text("COUNTER!", fg->counter_side ? SCREEN_XRES - 70 : 70, 58, 2, 255, 80, 200, ot, nextpri);
+	/* move name popup, on the side of the fighter using it */
+	if (fg->name_t > 0) {
+		char nm[20];
+		const char *src = MOVES[fg->name_move].name;
+		int k = 0;
+		for (; src[k] && k < 19; k++) {
+			char c = src[k];
+			nm[k] = c == '_' ? ' ' : (c >= 'a' && c <= 'z') ? c - 32 : c;
+		}
+		nm[k] = 0;
+		nextpri = big_text(nm, fg->name_side ? SCREEN_XRES - 84 : 84, 178, 2,
+		                   255, 255, fg->name_t > 40 ? 255 : 120, ot, nextpri);
 	}
 	return nextpri;
 }
