@@ -22,6 +22,7 @@ typedef struct {
 	int hp;                    /* 0..100 */
 	int state, attack, hit_done, cooldown;
 	int rehit_at;              /* special: clip % at which the next hit is armed */
+	int yaw_corr;              /* aim correction for the current attack (4096 = 360 deg) */
 	int combo[4], combo_len, combo_i;   /* queued attack chain (FA_*) */
 	int kb;                    /* knock back velocity (units per frame, signed), decays */
 	int last_backstep;         /* the previous idle decision was a backstep: do not chain them */

@@ -207,6 +207,33 @@ static void start_attack(Fighter *f, int attack) {
 		const ModelAnim *a = &f->model->anims[f->pose.anim];
 		f->pose.frame = (a->nframes * 20) / 100;
 	}
+	/* aim: evaluate the impact pose once and turn the body so the striking
+	 * foot / hand swings along the line to the opponent instead of beside it */
+	f->yaw_corr = 0;
+	if (attack != FA_SPECIAL && f->model->ik) {
+		const ModelAnim *a = &f->model->anims[f->pose.anim];
+		int save_frame = f->pose.frame, save_sub = f->pose.subframe;
+		f->pose.frame = (a->nframes * (attack == FA_KICK ? 45 : 35)) / 100;
+		f->pose.subframe = 0;
+		pose_eval(&f->pose);
+		const ModelIK *ik = f->model->ik;
+		int ca = attack == FA_KICK ? IK_LEG_L : IK_ARM_L, cb = ca + 1;
+		int best_b = -1, best_fwd = -1;
+		for (int c = ca; c <= cb; c++) {
+			if (ik->chains[c].upper < 0) continue;
+			int b = ik->chains[c].end >= 0 ? ik->chains[c].end : ik->chains[c].lower;
+			int fwd = -f->pose.world[b].t[2];               /* model forward is -z */
+			if (fwd > best_fwd) { best_fwd = fwd; best_b = b; }
+		}
+		if (best_b >= 0 && best_fwd > 200) {
+			int lat = f->pose.world[best_b].t[0];
+			f->yaw_corr = (lat * 652) / best_fwd;          /* atan(lat / fwd) in 4096 units, small angles */
+			if (f->yaw_corr > 700) f->yaw_corr = 700;
+			if (f->yaw_corr < -700) f->yaw_corr = -700;
+		}
+		f->pose.frame = save_frame;
+		f->pose.subframe = save_sub;
+	}
 }
 
 static int reach_of(int attack) {
@@ -249,6 +276,7 @@ static void fighter_ai(Fight *fg, int i) {
 	int dir = (o->x > f->x) ? 1 : -1;
 	int d = (o->x - f->x) * dir;                        /* distance, positive */
 	f->yaw = dir > 0 ? 3072 : 1024;                     /* always face the opponent */
+	if (f->state == FS_ATTACK) f->yaw = (f->yaw + f->yaw_corr) & 4095;
 	const ModelAnim *a = &f->model->anims[f->pose.anim];
 
 	switch (f->state) {
