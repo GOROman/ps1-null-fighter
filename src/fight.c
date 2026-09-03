@@ -303,12 +303,15 @@ static void fighter_ai(Fight *fg, int i) {
 			if (d <= reach_of(f->attack) && o->state != FS_KO && o->state != FS_HIT && o->state != FS_DOWN) {
 				int dmg = f->attack == FA_PUNCH ? 9 : f->attack == FA_KICK ? 14 : 20;
 				o->hp -= dmg;
-				/* hit effect at the striking hand / foot, camera shake */
+				/* hit effect where the strike lands: the opponent's body surface
+				 * facing the attacker, at the height of the striking hand / foot */
 				VECTOR sp = strike_point(f, dir);
+				int hx = o->x - dir * 280;
+				if ((sp.vx - hx) * dir > 0) hx = sp.vx;          /* limb already inside: use it */
 				for (int k = 0; k < MAX_FX; k++) {
 					if (fg->fx[k].active) continue;
 					fg->fx[k].active = 1; fg->fx[k].t = 0;
-					fg->fx[k].x = sp.vx; fg->fx[k].y = sp.vy; fg->fx[k].z = sp.vz;
+					fg->fx[k].x = hx; fg->fx[k].y = sp.vy; fg->fx[k].z = (sp.vz + o->z) / 2;
 					break;
 				}
 				fg->shake = 14;
