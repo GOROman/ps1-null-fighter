@@ -22,6 +22,7 @@ typedef struct {
 	int hp;                    /* 0..100 */
 	int state, attack, hit_done, cooldown;
 	int combo[4], combo_len, combo_i;   /* queued attack chain (FA_*) */
+	int kb;                    /* knock back velocity (units per frame, signed), decays */
 	int hp_disp;               /* displayed hp (drains slowly towards hp) */
 	int anim_idle, anim_run, anim_punch, anim_kick, anim_special, anim_hit, anim_ko, anim_win, anim_jump;
 } Fighter;
@@ -44,6 +45,7 @@ typedef struct {
 	VECTOR cam_target;
 	HitFx fx[MAX_FX];
 	int shake;                 /* camera shake frames after a hit */
+	int hitstop;               /* frames both fighters freeze after a hit */
 } Fight;
 
 void fight_init(Fight *fg, const Model *m0, Renderer *r0, const Model *m1, Renderer *r1);

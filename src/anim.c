@@ -10,6 +10,7 @@ void pose_init(Pose *p, const Model *m, int anim) {
 	memset(p, 0, sizeof(*p));
 	p->model = m;
 	p->playing = 1;
+	p->speed = 256;
 	p->hip_bone = -1;
 	pose_set_anim(p, anim);
 }
@@ -28,7 +29,7 @@ void pose_step(Pose *p, int display_hz) {
 	const ModelAnim *a = &p->model->anims[p->anim];
 	if (!p->playing || a->nframes <= 1) return;
 	/* subframe advances fps/display_hz per display frame (in 1/256 units) */
-	p->subframe += (a->fps * 256) / display_hz;
+	p->subframe += ((a->fps * 256) / display_hz) * (p->speed ? p->speed : 256) / 256;
 	while (p->subframe >= 256) {
 		p->subframe -= 256;
 		p->frame++;

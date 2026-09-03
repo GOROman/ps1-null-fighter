@@ -12,6 +12,7 @@ typedef struct {
 	int frame;             /* integer frame */
 	int subframe;          /* 0..255 interpolation towards frame+1 */
 	int playing;
+	int speed;             /* playback speed, 256 = 1.0 */
 	int loops;             /* how many times the animation wrapped since pose_set_anim */
 	VECTOR look_smooth;    /* head look-at: filtered direction (model space) */
 	int look_init;

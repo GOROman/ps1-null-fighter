@@ -122,6 +122,7 @@ static int find_anim(const Model *m, const char *name) {
 static void set_anim(Fighter *f, int anim) {
 	pose_set_anim(&f->pose, anim);
 	f->pose.playing = 1;
+	f->pose.speed = 256;
 }
 
 static void fighter_setup(Fighter *f, const Model *m, Renderer *r) {
@@ -197,6 +198,7 @@ static void start_attack(Fighter *f, int attack) {
 	f->state = FS_ATTACK;
 	f->hit_done = 0;
 	set_anim(f, attack == FA_PUNCH ? f->anim_punch : attack == FA_KICK ? f->anim_kick : f->anim_special);
+	f->pose.speed = attack == FA_KICK ? 512 : 256;      /* kicks play at double speed */
 }
 
 static int reach_of(int attack) {
@@ -270,7 +272,7 @@ static void fighter_ai(Fight *fg, int i) {
 					fg->fx[k].x = o->x - dir * 250; fg->fx[k].y = -2500; fg->fx[k].z = o->z;
 					break;
 				}
-				fg->shake = 8;
+				fg->shake = 14;
 				if (o->hp <= 0) {
 					o->hp = 0;
 					o->state = FS_KO;
@@ -278,8 +280,9 @@ static void fighter_ai(Fight *fg, int i) {
 				} else {
 					o->state = FS_HIT;
 					set_anim(o, o->anim_hit);
-					o->x += dir * 120;                     /* knock back */
 				}
+				o->kb = dir * (f->attack == FA_PUNCH ? 70 : f->attack == FA_KICK ? 110 : 140);   /* pushed away */
+				fg->hitstop = f->attack == FA_PUNCH ? 5 : 8;
 			}
 		}
 		/* chain the next attack of the combo a little before the clip ends */
@@ -373,8 +376,9 @@ static void auto_camera(Fight *fg, Camera *cam) {
 	cam->dist = fg->cam_dist;
 	cam->target = fg->cam_target;
 	if (fg->shake > 0) {
-		cam->target.vy += (fg->shake & 1) ? 60 : -60;
-		cam->target.vx += (fg->shake & 2) ? 40 : -40;
+		int amp = 40 + fg->shake * 8;
+		cam->target.vy += (fg->shake & 1) ? amp : -amp;
+		cam->target.vx += (fg->shake & 2) ? amp / 2 : -amp / 2;
 		fg->shake--;
 	}
 	camera_update(cam, 0);
@@ -469,12 +473,23 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 	}
 	for (int k = 0; k < MAX_FX; k++)
 		if (fg->fx[k].active && (fg->fx[k].t += g_step) > 16) fg->fx[k].active = 0;
-	/* animation + head look-at towards the opponent */
+	/* knock back: the hit fighter slides away over a few frames */
 	for (int i = 0; i < 2; i++) {
 		Fighter *f = &fg->f[i];
-		pose_step(&f->pose, hz >= 45 ? 60 : 30);
+		if (f->kb) {
+			f->x += f->kb * g_step;
+			f->kb = (f->kb * 3) / 4;
+			if (f->kb > -6 && f->kb < 6) f->kb = 0;
+		}
+	}
+	/* animation (frozen during hit stop) + head look-at towards the opponent */
+	for (int i = 0; i < 2; i++) {
+		Fighter *f = &fg->f[i];
+		if (fg->hitstop <= 0)
+			pose_step(&f->pose, hz >= 45 ? 60 : 30);
 		pose_eval(&f->pose);
 	}
+	if (fg->hitstop > 0) fg->hitstop -= g_step;
 	for (int i = 0; i < 2; i++) {
 		Fighter *f = &fg->f[i], *o = &fg->f[1 - i];
 		VECTOR oh = head_world(o);
