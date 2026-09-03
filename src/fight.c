@@ -364,7 +364,7 @@ static void fighter_ai(Fight *fg, int i) {
 		int pct = a->nframes > 1 ? (f->pose.frame * 100) / (a->nframes - 1) : 100;
 		/* active window per attack (from the impact frames of the clips):
 		 * keeps checking until it connects or the swing is over */
-		int hit_from = f->attack == FA_PUNCH ? 15 : f->attack == FA_KICK ? 15 : 20;
+		int hit_from = f->attack == FA_PUNCH ? 18 : f->attack == FA_KICK ? 28 : 20;
 		int hit_to   = f->attack == FA_SPECIAL ? 88 : f->attack == FA_KICK ? 70 : 60;
 		if (f->attack == FA_SPECIAL && pct >= 10 && pct <= 88)
 			f->x += dir * 30 * g_step;                     /* the spinning bird kick travels */
