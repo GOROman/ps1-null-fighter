@@ -320,6 +320,7 @@ static void fighter_ai(Fight *fg, int i) {
 					o->state = FS_DOWN;                    /* kicks knock the opponent down */
 					set_anim(o, o->anim_fall);
 					o->pose.speed = 384;
+					o->down_phase = 0;
 				} else {
 					o->state = FS_HIT;
 					set_anim(o, o->anim_hit);
@@ -342,10 +343,19 @@ static void fighter_ai(Fight *fg, int i) {
 		break;
 	}
 	case FS_DOWN:
-		if (f->pose.loops > 0) {                       /* back on their feet */
-			f->state = FS_IDLE;
-			f->cooldown = 20 + (rnd(fg) % 20);
-			set_anim(f, f->anim_idle);
+		if (f->pose.loops > 0) {
+			if (f->down_phase == 0) {
+				/* lying down: get up by playing the fall clip backwards */
+				f->down_phase = 1;
+				f->pose.frame = a->nframes - 1;
+				f->pose.subframe = 0;
+				f->pose.loops = 0;
+				f->pose.speed = -320;
+			} else {                                    /* back on their feet */
+				f->state = FS_IDLE;
+				f->cooldown = 12 + (rnd(fg) % 16);
+				set_anim(f, f->anim_idle);
+			}
 		}
 		break;
 	case FS_HIT:

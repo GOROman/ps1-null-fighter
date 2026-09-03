@@ -28,13 +28,22 @@ void pose_set_anim(Pose *p, int anim) {
 void pose_step(Pose *p, int display_hz) {
 	const ModelAnim *a = &p->model->anims[p->anim];
 	if (!p->playing || a->nframes <= 1) return;
-	/* subframe advances fps/display_hz per display frame (in 1/256 units) */
+	/* subframe advances fps/display_hz per display frame (in 1/256 units);
+	 * a negative speed plays backwards (loops counts wraps either way) */
 	p->subframe += ((a->fps * 256) / display_hz) * (p->speed ? p->speed : 256) / 256;
 	while (p->subframe >= 256) {
 		p->subframe -= 256;
 		p->frame++;
 		if (p->frame >= a->nframes) {
 			p->frame = 0;
+			p->loops++;
+		}
+	}
+	while (p->subframe < 0) {
+		p->subframe += 256;
+		p->frame--;
+		if (p->frame < 0) {
+			p->frame = a->nframes - 1;
 			p->loops++;
 		}
 	}
