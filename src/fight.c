@@ -246,55 +246,81 @@ static void fighter_ai(Fight *fg, int i) {
 	const ModelAnim *a = &f->model->anims[f->pose.anim];
 
 	switch (f->state) {
-	case FS_IDLE:
+	case FS_IDLE: {
 		if (f->cooldown > 0) { f->cooldown--; break; }
-		if (d > APPROACH_STOP + 1200) {
-			f->state = FS_APPROACH;                        /* far: run */
-			set_anim(f, f->anim_run);
-		} else if (d > APPROACH_STOP + 200) {
-			f->state = FS_WALK;                            /* close: walk in (run clip at half speed) */
-			set_anim(f, f->anim_run);
-			f->pose.speed = 128;
-		} else if (o->state == FS_DOWN) {
-			f->cooldown = 10;                              /* let them get up */
-		} else if (o->state != FS_KO) {
-			uint32_t r = rnd(fg) % 100;
-			if (r < 45) {
-				uint32_t cr = rnd(fg) % 100;
-				const int *c = cr < 30 ? COMBOS[2]                    /* punch-punch-kick 30% */
-				             : cr < 50 ? COMBOS[0]                    /* single punch */
-				             : COMBOS[rnd(fg) % NCOMBOS];
+		if (o->state == FS_KO) break;
+		/* ---- strategy ---------------------------------------------------
+		 * read the opponent: attack startup / recovery, stun, distance zone,
+		 * life lead and the clock; then pick an action.  rnd only breaks ties.
+		 */
+		int aggr = i == 0 ? 60 : 45;                       /* personality: P1 pushes, P2 counters */
+		if (f->hp < 30) aggr -= 15;                        /* hurt: play safe */
+		if (o->hp < 30) aggr += 15;                        /* smell blood */
+		if (fg->timer < 15 * 60 && f->hp < o->hp) aggr += 30;   /* losing on time: go */
+		const ModelAnim *oa = &o->model->anims[o->pose.anim];
+		int opct = oa->nframes > 1 ? (o->pose.frame * 100) / (oa->nframes - 1) : 100;
+		int o_startup  = o->state == FS_ATTACK && opct < 30;          /* about to swing */
+		int o_recovery = o->state == FS_ATTACK && opct >= 55;         /* whiffed / recovering */
+		int o_stunned  = o->state == FS_HIT;
+		int o_backing  = o->state == FS_RETREAT || o->state == FS_BACKSTEP;
+		int in_punch   = d <= REACH_PUNCH;
+		int in_kick    = d <= REACH_KICK;
+		uint32_t r = rnd(fg) % 100;
+
+		if (o_recovery || o_stunned) {
+			/* punish window: rush in with a combo (kick from farther out) */
+			if (in_punch) {
+				const int *c = COMBOS[2];                  /* P-P-K */
 				f->combo_len = 0;
 				for (int k = 0; k < 4 && c[k] >= 0; k++) f->combo[f->combo_len++] = c[k];
-				f->combo_i = 0;
-				f->last_backstep = 0;
+				f->combo_i = 0; f->last_backstep = 0;
 				start_attack(f, f->combo[0]);
-			} else if (!f->last_backstep && r < 56) {
-				f->state = FS_RETREAT;                     /* walk backwards: run clip reversed */
-				f->last_backstep = 1;
-				f->cooldown = 14 + (rnd(fg) % 16);        /* duration of the retreat */
-				set_anim(f, f->anim_run);
-				f->pose.speed = -128;
-			} else if (!f->last_backstep && (r < 64 || (r < 75 && d < MIN_DIST + 250))) {
-				f->state = FS_BACKSTEP;                    /* hop back to reset the spacing */
-				f->last_backstep = 1;
-				set_anim(f, f->anim_jump);
+			} else if (in_kick) {
+				f->combo_len = 1; f->combo[0] = FA_KICK; f->combo_i = 0; f->last_backstep = 0;
+				start_attack(f, FA_KICK);
 			} else {
-				f->last_backstep = 0;
-				f->cooldown = 4 + (rnd(fg) % 16);
+				f->state = FS_APPROACH; set_anim(f, f->anim_run);
 			}
-		}
-		break;
-	case FS_BACKSTEP: {
-		/* move back during the first 60% of the hop, then land */
-		/* the jump clip contains several hops: use only the first one */
-		int pct = a->nframes > 1 ? (f->pose.frame * 100) / (a->nframes - 1) : 100;
-		if (pct < 24 && d < APPROACH_STOP + 900)
-			f->x -= dir * BACKSTEP_SPEED * g_step;      /* away from the opponent */
-		if (f->pose.loops > 0 || pct >= 30) {
-			f->state = FS_IDLE;
-			f->cooldown = 6 + (rnd(fg) % 20);
-			set_anim(f, f->anim_idle);
+		} else if (o_startup && in_kick) {
+			/* the opponent is swinging: either beat it with a fast punch or get out */
+			if (in_punch && r < aggr) {
+				f->combo_len = 1; f->combo[0] = FA_PUNCH; f->combo_i = 0;
+				start_attack(f, FA_PUNCH);
+			} else if (!f->last_backstep) {
+				f->state = FS_BACKSTEP; f->last_backstep = 1; set_anim(f, f->anim_jump);
+			} else {
+				f->state = FS_RETREAT; f->cooldown = 10 + (rnd(fg) % 8);
+				set_anim(f, f->anim_run); f->pose.speed = -128;
+			}
+		} else if (d > APPROACH_STOP + 1200) {
+			f->state = FS_APPROACH; set_anim(f, f->anim_run);
+		} else if (d > APPROACH_STOP + 200) {
+			/* mid range: walk in, or hang back and wait for a whiff when defensive */
+			if (o_backing || r < aggr + 20) {
+				f->state = FS_WALK; set_anim(f, f->anim_run); f->pose.speed = 128;
+			} else {
+				f->cooldown = 6 + (rnd(fg) % 10);         /* wait and watch */
+			}
+		} else if (o->state == FS_DOWN) {
+			f->cooldown = 10;                              /* let them get up */
+		} else if (in_punch && r < aggr) {
+			/* close and the opponent is idle: open with a combo (mix-ups) */
+			const int *c = r < aggr / 2 ? COMBOS[2] : COMBOS[rnd(fg) % NCOMBOS];
+			f->combo_len = 0;
+			for (int k = 0; k < 4 && c[k] >= 0; k++) f->combo[f->combo_len++] = c[k];
+			f->combo_i = 0; f->last_backstep = 0;
+			start_attack(f, f->combo[0]);
+		} else if (in_kick && !in_punch && r < aggr) {
+			f->combo_len = 1; f->combo[0] = FA_KICK; f->combo_i = 0; f->last_backstep = 0;
+			start_attack(f, FA_KICK);                      /* kick range poke */
+		} else if (!f->last_backstep && r < 85) {
+			/* bait: step out so the opponent whiffs, then punish */
+			f->state = FS_RETREAT; f->last_backstep = 1;
+			f->cooldown = 12 + (rnd(fg) % 12);
+			set_anim(f, f->anim_run); f->pose.speed = -128;
+		} else {
+			f->last_backstep = 0;
+			f->cooldown = 4 + (rnd(fg) % 10);
 		}
 		break;
 	}
