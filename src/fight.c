@@ -370,10 +370,14 @@ static void fighter_ai(Fight *fg, int i) {
 			f->x += dir * 30 * g_step;                     /* the spinning bird kick travels */
 		else if (f->combo_i > 0 && !f->hit_done && d > MIN_DIST + 100)
 			f->x += dir * 44 * g_step;                     /* chained attack: lunge to keep the range */
+		/* the spinning bird kick hits once per spin: re-arm every ~22% */
+		if (f->attack == FA_SPECIAL && f->hit_done && pct >= f->rehit_at)
+			f->hit_done = 0;
 		if (!f->hit_done && pct >= hit_from && pct <= hit_to) {
 			if (d <= reach_of(f->attack) && o->state != FS_KO && o->state != FS_DOWN) {
 				f->hit_done = 1;
-				int dmg = f->attack == FA_PUNCH ? 9 : f->attack == FA_KICK ? 14 : 24;
+				f->rehit_at = pct + 22;
+				int dmg = f->attack == FA_PUNCH ? 9 : f->attack == FA_KICK ? 14 : 6;   /* sbk: small, multi hit */
 				o->hp -= dmg;
 				/* hit effect where the strike lands: the opponent's body surface
 				 * facing the attacker, at the height of the striking hand / foot */
@@ -397,8 +401,8 @@ static void fighter_ai(Fight *fg, int i) {
 				}
 				/* pushed away: kicks send the opponent flying */
 				int last = f->combo_i + 1 >= f->combo_len;
-				o->kb = dir * (f->attack == FA_PUNCH ? (last ? 70 : 20) : f->attack == FA_KICK ? 260 : 320);
-				fg->hitstop = f->attack == FA_PUNCH ? 5 : 8;
+				o->kb = dir * (f->attack == FA_PUNCH ? (last ? 70 : 20) : f->attack == FA_KICK ? 260 : 40);
+				fg->hitstop = f->attack == FA_PUNCH ? 5 : f->attack == FA_KICK ? 8 : 2;
 			} else if (pct > 65) {
 				f->hit_done = 1;
 			}
