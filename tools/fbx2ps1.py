@@ -877,10 +877,90 @@ def build_ik_table(bone_names, parents, bone_bind_global, inv_bind, bind_local, 
     return {"hip": hip, "head": head, "head_fwd": head_fwd, "chains": chains}
 
 
+def synth_sbk_clip(nb, parents, bind_local, ik, verbose=True, seconds=1.4, spins=3.0):
+    """Spinning bird kick, built in PS1 space (y down) from the bind pose:
+    the body is turned upside down about the lateral axis, the legs are
+    spread sideways to the horizontal, the arms are raised over the head
+    (= planted on the floor once inverted) and everything spins about the
+    vertical axis.  Bones get world-space target rotations; the locals are
+    recovered against the parent so the rig's own axes do not matter."""
+    nframes = max(2, int(round(seconds * SAMPLE_FPS)) + 1)
+    H = 4096.0
+    hip, tl, tr = ik["hip"], ik["chains"][2]["upper"], ik["chains"][3]["upper"]
+    al, ar = (ik["chains"][0]["upper"] if ik["chains"][0] else -1), (ik["chains"][1]["upper"] if ik["chains"][1] else -1)
+    # bind world matrices (PS1 space, units)
+    bind_world = [None] * nb
+    for b in range(nb):
+        m = bind_local[b].copy()
+        m[:3, 3] *= UNIT_SCALE
+        p = parents[b]
+        bind_world[b] = m if p < 0 else bind_world[p] @ m
+
+    def rx(a):
+        c, s_ = math.cos(a), math.sin(a)
+        return np.array([[1, 0, 0], [0, c, -s_], [0, s_, c]])
+
+    def ry(a):
+        c, s_ = math.cos(a), math.sin(a)
+        return np.array([[c, 0, s_], [0, 1, 0], [-s_, 0, c]])
+
+    def rz(a):
+        c, s_ = math.cos(a), math.sin(a)
+        return np.array([[c, -s_, 0], [s_, c, 0], [0, 0, 1]])
+
+    # which side is +x: the left thigh's bind x tells us
+    left_sign = 1.0 if bind_world[tl][0, 3] >= bind_world[tr][0, 3] else -1.0
+    head_reach = 0.0
+    if ik["head"] >= 0:
+        head_reach = abs(bind_world[ik["head"]][1, 3] - bind_world[hip][1, 3]) + 0.12 * H   # hip -> top of head
+    quats = np.zeros((nframes, nb, 4))
+    trans = np.zeros((nframes, nb, 3))
+    for f in range(nframes):
+        u = f / (nframes - 1)
+        spin = 2 * math.pi * spins * u
+        # ease the flip in over the first 20% and out over the last 15%
+        flip = min(1.0, u / 0.2) if u < 0.85 else max(0.0, (1.0 - u) / 0.15)
+        split = flip
+        body = ry(spin) @ rx(math.pi * flip)               # world attitude of the torso
+        target = {}
+        target[hip] = body @ bind_world[hip][:3, :3]
+        target[tl] = body @ rz(-left_sign * math.radians(95) * split) @ bind_world[tl][:3, :3]
+        target[tr] = body @ rz(left_sign * math.radians(95) * split) @ bind_world[tr][:3, :3]
+        if al >= 0:
+            target[al] = body @ rz(-left_sign * math.radians(165) * split) @ bind_world[al][:3, :3]
+        if ar >= 0:
+            target[ar] = body @ rz(left_sign * math.radians(165) * split) @ bind_world[ar][:3, :3]
+        # hip position: inverted, the head must stay just above the floor;
+        # a small bob with the spin
+        hip_y = bind_world[hip][1, 3] * (1 - flip) + (-(head_reach + 0.04 * H)) * flip
+        hip_y += -60 * math.sin(spin * 2) * flip
+        world = [None] * nb
+        for b in range(nb):
+            p = parents[b]
+            pw = np.eye(4) if p < 0 else world[p]
+            local = bind_local[b].copy()
+            local[:3, 3] *= UNIT_SCALE
+            if b in target:
+                local[:3, :3] = np.linalg.inv(pw[:3, :3]) @ target[b]
+            if b == hip:
+                local[:3, 3] = np.linalg.inv(pw[:3, :3]) @ (np.array([0.0, hip_y, 0.0]) - pw[:3, 3])
+            world[b] = pw @ local
+            quats[f, b] = mat_to_quat(local)
+            trans[f, b] = local[:3, 3]
+    # quaternion continuity
+    for f in range(1, nframes):
+        for b in range(nb):
+            if np.dot(quats[f, b], quats[f - 1, b]) < 0:
+                quats[f, b] = -quats[f, b]
+    if verbose:
+        print("synth sbk: %d frames, %.1f spins" % (nframes, spins))
+    return {"name": "sbk", "nframes": nframes, "q": quats, "t": trans}
+
+
 def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=False, texture=None,
             autorig=False, front=(0, 0, 1), face_tex=False, dump_uv=None, hidden_dist=0.0,
             double_sided=None, gen_skirt=False, gen_body=False, anim_from=None, keep_face=False,
-            face_weight=1.0, keep_eyes=False, align_clips=True):
+            face_weight=1.0, keep_eyes=False, align_clips=True, synth_sbk=False):
     global C_FBX_TO_PS1
     if scene.up_axis == 2:
         C_FBX_TO_PS1 = C_ZUP_TO_PS1 * np.array([[1], [scene.up_sign], [1]])
@@ -1191,6 +1271,10 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
             if verbose:
                 print("anim %-16s turned %.0f deg: root re-aligned" % (a["name"], math.degrees(yaw)))
 
+    # ---- synthesized special: Chun-Li style spinning bird kick ------------
+    if synth_sbk and ik_hint is not None and ik_hint["chains"][2] and ik_hint["chains"][3]:
+        anims.append(synth_sbk_clip(nb, parents, bind_local, ik_hint, verbose))
+
     # translation-animated bones: translation varies (within an anim or vs bind)
     trans_animated = np.zeros(nb, dtype=bool)
     for a in anims:
@@ -1499,6 +1583,8 @@ def main():
                     help="never decimate the face (front half of the head below the hairline)")
     ap.add_argument("--tim-slot", type=int, default=0,
                     help="VRAM slot of the body texture (0: page 640, 1: page 768) so two characters can be loaded")
+    ap.add_argument("--synth-sbk", action="store_true",
+                    help="add a procedural spinning bird kick clip ('sbk') to a rigged character")
     ap.add_argument("--keep-eyes", action="store_true",
                     help="decimation: never collapse head vertices whose texture is dark (eyes, brows, mouth)")
     ap.add_argument("--face-weight", type=float, default=1.0,
@@ -1539,7 +1625,7 @@ def main():
                     autorig=args.autorig, face_tex=args.face_tex, dump_uv=args.dump_uv,
                     hidden_dist=args.remove_hidden, double_sided=args.double_sided, gen_skirt=args.gen_skirt,
                     gen_body=args.gen_body, keep_face=args.keep_face, face_weight=args.face_weight,
-                    keep_eyes=args.keep_eyes,
+                    keep_eyes=args.keep_eyes, synth_sbk=args.synth_sbk,
                     anim_from=Scene(args.anim_from, drop_bones=drop) if args.anim_from else None,
                     front={"+z": (0, 0, 1), "-z": (0, 0, -1), "+x": (1, 0, 0), "-x": (-1, 0, 0)}[args.front])
     textures = model["textures"]

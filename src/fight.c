@@ -14,7 +14,7 @@
 #define ROUND_FRAMES   (60 * 60)      /* 60 s */
 #define START_X        1500           /* fighters start at +-START_X */
 #define REACH_PUNCH    1600
-#define REACH_KICK     1450
+#define REACH_KICK     1700
 #define REACH_SPECIAL  1650
 #define APPROACH_STOP  1200
 #define MIN_DIST       1000
@@ -134,7 +134,8 @@ static void fighter_setup(Fighter *f, const Model *m, Renderer *r) {
 	f->anim_run     = find_anim(m, "run");
 	f->anim_punch   = find_anim(m, "box");
 	f->anim_kick    = find_anim(m, "front_kick");
-	f->anim_special = find_anim(m, "shoot");
+	f->anim_special = find_anim(m, "sbk");            /* spinning bird kick if the model has it */
+	if (f->anim_special == 0) f->anim_special = find_anim(m, "shoot");
 	f->anim_hit     = find_anim(m, "hit_to_body");
 	f->anim_ko      = find_anim(m, "defeat");
 	f->anim_win     = find_anim(m, "laugh");
@@ -200,7 +201,7 @@ static void start_attack(Fighter *f, int attack) {
 	f->state = FS_ATTACK;
 	f->hit_done = 0;
 	set_anim(f, attack == FA_PUNCH ? f->anim_punch : attack == FA_KICK ? f->anim_kick : f->anim_special);
-	f->pose.speed = attack == FA_SPECIAL ? 320 : attack == FA_PUNCH ? 768 : 512;   /* punches fastest */
+	f->pose.speed = attack == FA_SPECIAL ? 256 : attack == FA_PUNCH ? 768 : 512;   /* punches fastest */
 	if (attack == FA_KICK && f->combo_i > 0) {
 		/* chained kick: skip the wind-up */
 		const ModelAnim *a = &f->model->anims[f->pose.anim];
@@ -268,8 +269,8 @@ static void fighter_ai(Fight *fg, int i) {
 		int o_recovery = o->state == FS_ATTACK && opct >= 55;         /* whiffed / recovering */
 		int o_stunned  = o->state == FS_HIT;
 		int o_backing  = o->state == FS_RETREAT || o->state == FS_BACKSTEP;
-		int in_punch   = d <= REACH_PUNCH;
-		int in_kick    = d <= REACH_KICK;
+		int in_punch   = d <= REACH_PUNCH - 150;          /* commit only with margin */
+		int in_kick    = d <= REACH_KICK - 200;
 		uint32_t r = rnd(fg) % 100;
 
 		if (o_recovery || o_stunned) {
@@ -361,12 +362,16 @@ static void fighter_ai(Fight *fg, int i) {
 		break;
 	case FS_ATTACK: {
 		int pct = a->nframes > 1 ? (f->pose.frame * 100) / (a->nframes - 1) : 100;
-		/* active window: keeps checking until it connects or the swing is over */
-		int hit_from = f->attack == FA_PUNCH ? 25 : ATTACK_HIT_AT;
-		if (!f->hit_done && pct >= hit_from && pct <= 65) {
+		/* active window per attack (from the impact frames of the clips):
+		 * keeps checking until it connects or the swing is over */
+		int hit_from = f->attack == FA_PUNCH ? 15 : f->attack == FA_KICK ? 15 : 20;
+		int hit_to   = f->attack == FA_SPECIAL ? 88 : f->attack == FA_KICK ? 70 : 60;
+		if (f->attack == FA_SPECIAL && pct >= 10 && pct <= 88)
+			f->x += dir * 30 * g_step;                     /* the spinning bird kick travels */
+		if (!f->hit_done && pct >= hit_from && pct <= hit_to) {
 			if (d <= reach_of(f->attack) && o->state != FS_KO && o->state != FS_DOWN) {
 				f->hit_done = 1;
-				int dmg = f->attack == FA_PUNCH ? 9 : f->attack == FA_KICK ? 14 : 20;
+				int dmg = f->attack == FA_PUNCH ? 9 : f->attack == FA_KICK ? 14 : 24;
 				o->hp -= dmg;
 				/* hit effect where the strike lands: the opponent's body surface
 				 * facing the attacker, at the height of the striking hand / foot */
@@ -389,7 +394,7 @@ static void fighter_ai(Fight *fg, int i) {
 					set_anim(o, o->anim_hit);
 				}
 				/* pushed away: kicks send the opponent flying */
-				o->kb = dir * (f->attack == FA_PUNCH ? 70 : f->attack == FA_KICK ? 260 : 150);
+				o->kb = dir * (f->attack == FA_PUNCH ? 70 : f->attack == FA_KICK ? 260 : 320);
 				fg->hitstop = f->attack == FA_PUNCH ? 5 : 8;
 			} else if (pct > 65) {
 				f->hit_done = 1;
@@ -618,6 +623,7 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 	if (fg->hitstop > 0) fg->hitstop -= g_step;
 	for (int i = 0; i < 2; i++) {
 		Fighter *f = &fg->f[i], *o = &fg->f[1 - i];
+		if (f->state == FS_ATTACK && f->attack == FA_SPECIAL) continue;   /* inverted: no look-at */
 		VECTOR oh = head_world(o);
 		/* into this fighter's model space: Ry(-yaw) * (p - pos) */
 		SVECTOR r = { 0, (-f->yaw) & 4095, 0, 0 };

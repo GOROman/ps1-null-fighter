@@ -56,17 +56,17 @@ convert_model(schoolgirl ${ASSET_SRC}/schoolgirl/schoolgirl.fbx ${ASSET_SRC}/sch
               FACE SKIRT --target-tris ${MODEL_TRIS} --reatlas --autorig
               --remove-hidden 0.02 --skirt 0.39 0.49 --gen-body)
 convert_model(character ${ASSET_SRC}/character.fbx ${ASSET_SRC}/character.fbm/basecolor.jpg --front=+z
-              --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02)
+              --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02 --synth-sbk)
 # fight mode: a light version of the blonde (two of them must fit in a frame)
 convert_model(character_lo ${ASSET_SRC}/character.fbx ${ASSET_SRC}/character.fbm/basecolor.jpg --front=+z
               --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02
-              --target-tris 600 --face-weight 100 --keep-eyes)
+              --target-tris 600 --face-weight 100 --keep-eyes --synth-sbk)
 # third character: a Tripo rig without animations - the blonde's animations
 # are transferred by bone name
 convert_model(schoolgirl2 ${ASSET_SRC}/schoolgirl2/schoolgirl2.fbx ${ASSET_SRC}/schoolgirl2/basecolor.jpg
               --front=+z --anim-from ${ASSET_SRC}/character.fbx
               --drop-bones thightwist,calftwist,upperarmtwist,forearmtwist,toebase,necktwist02
-              --target-tris 1400 --face-weight 100 --keep-eyes --tim-slot 1)
+              --target-tris 1400 --face-weight 100 --keep-eyes --tim-slot 1 --synth-sbk)
 add_custom_command(
 	OUTPUT  ${ASSET_OUT}/monkey.tim
 	COMMAND ${CMAKE_COMMAND} -E make_directory ${ASSET_OUT}
