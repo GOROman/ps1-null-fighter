@@ -13,7 +13,7 @@
 
 #define ROUND_FRAMES   (60 * 60)      /* 60 s */
 #define START_X        1500           /* fighters start at +-START_X */
-#define REACH_PUNCH    1450
+#define REACH_PUNCH    1600
 #define REACH_KICK     1450
 #define REACH_SPECIAL  1650
 #define APPROACH_STOP  1200
@@ -199,7 +199,7 @@ static void start_attack(Fighter *f, int attack) {
 	f->state = FS_ATTACK;
 	f->hit_done = 0;
 	set_anim(f, attack == FA_PUNCH ? f->anim_punch : attack == FA_KICK ? f->anim_kick : f->anim_special);
-	f->pose.speed = attack == FA_SPECIAL ? 320 : 512;   /* punches and kicks at double speed, specials a bit faster */
+	f->pose.speed = attack == FA_SPECIAL ? 320 : attack == FA_PUNCH ? 768 : 512;   /* punches fastest */
 }
 
 static int reach_of(int attack) {
@@ -298,9 +298,11 @@ static void fighter_ai(Fight *fg, int i) {
 		break;
 	case FS_ATTACK: {
 		int pct = a->nframes > 1 ? (f->pose.frame * 100) / (a->nframes - 1) : 100;
-		if (!f->hit_done && pct >= ATTACK_HIT_AT) {
-			f->hit_done = 1;
-			if (d <= reach_of(f->attack) && o->state != FS_KO && o->state != FS_HIT && o->state != FS_DOWN) {
+		/* active window: keeps checking until it connects or the swing is over */
+		int hit_from = f->attack == FA_PUNCH ? 25 : ATTACK_HIT_AT;
+		if (!f->hit_done && pct >= hit_from && pct <= 65) {
+			if (d <= reach_of(f->attack) && o->state != FS_KO && o->state != FS_DOWN) {
+				f->hit_done = 1;
 				int dmg = f->attack == FA_PUNCH ? 9 : f->attack == FA_KICK ? 14 : 20;
 				o->hp -= dmg;
 				/* hit effect where the strike lands: the opponent's body surface
@@ -326,6 +328,8 @@ static void fighter_ai(Fight *fg, int i) {
 				/* pushed away: kicks send the opponent flying */
 				o->kb = dir * (f->attack == FA_PUNCH ? 70 : f->attack == FA_KICK ? 260 : 150);
 				fg->hitstop = f->attack == FA_PUNCH ? 5 : 8;
+			} else if (pct > 65) {
+				f->hit_done = 1;
 			}
 		}
 		/* combos cut the recovery half of each clip: chain right after the hit */
