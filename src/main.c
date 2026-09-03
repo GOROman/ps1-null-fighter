@@ -111,7 +111,7 @@ static int find_anim(const Model *m, const char *name) {
 	for (int i = 0; i < m->hdr->nanims; i++) {
 		const char *a = m->anims[i].name;
 		int k = 0;
-		while (name[k] && a[k] == name[k]) k++;
+		while (name[k] && (a[k] | 0x20) == (name[k] | 0x20)) k++;   /* case insensitive */
 		if (!name[k]) return i;
 	}
 	return 0;
