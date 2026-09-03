@@ -11,7 +11,7 @@
 #include "render.h"
 #include "camera.h"
 
-enum { FS_IDLE, FS_APPROACH, FS_BACKSTEP, FS_ATTACK, FS_HIT, FS_DOWN, FS_KO, FS_WIN };
+enum { FS_IDLE, FS_APPROACH, FS_WALK, FS_RETREAT, FS_BACKSTEP, FS_ATTACK, FS_HIT, FS_DOWN, FS_KO, FS_WIN };
 enum { FA_PUNCH, FA_KICK, FA_SPECIAL };
 
 typedef struct {

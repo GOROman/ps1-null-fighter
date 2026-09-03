@@ -19,6 +19,7 @@
 #define APPROACH_STOP  1200
 #define MIN_DIST       1000
 #define RUN_SPEED      44
+#define WALK_SPEED     20
 #define BACKSTEP_SPEED 48
 #define ATTACK_HIT_AT  40             /* % of the attack animation where it lands */
 #define FLOOR_OTZ      (OT_LEN - 1)
@@ -247,9 +248,13 @@ static void fighter_ai(Fight *fg, int i) {
 	switch (f->state) {
 	case FS_IDLE:
 		if (f->cooldown > 0) { f->cooldown--; break; }
-		if (d > APPROACH_STOP + 200) {
-			f->state = FS_APPROACH;
+		if (d > APPROACH_STOP + 1200) {
+			f->state = FS_APPROACH;                        /* far: run */
 			set_anim(f, f->anim_run);
+		} else if (d > APPROACH_STOP + 200) {
+			f->state = FS_WALK;                            /* close: walk in (run clip at half speed) */
+			set_anim(f, f->anim_run);
+			f->pose.speed = 128;
 		} else if (o->state == FS_DOWN) {
 			f->cooldown = 10;                              /* let them get up */
 		} else if (o->state != FS_KO) {
@@ -264,7 +269,13 @@ static void fighter_ai(Fight *fg, int i) {
 				f->combo_i = 0;
 				f->last_backstep = 0;
 				start_attack(f, f->combo[0]);
-			} else if (!f->last_backstep && (r < 62 || (r < 75 && d < MIN_DIST + 250))) {
+			} else if (!f->last_backstep && r < 56) {
+				f->state = FS_RETREAT;                     /* walk backwards: run clip reversed */
+				f->last_backstep = 1;
+				f->cooldown = 14 + (rnd(fg) % 16);        /* duration of the retreat */
+				set_anim(f, f->anim_run);
+				f->pose.speed = -128;
+			} else if (!f->last_backstep && (r < 64 || (r < 75 && d < MIN_DIST + 250))) {
 				f->state = FS_BACKSTEP;                    /* hop back to reset the spacing */
 				f->last_backstep = 1;
 				set_anim(f, f->anim_jump);
@@ -287,9 +298,30 @@ static void fighter_ai(Fight *fg, int i) {
 		}
 		break;
 	}
-	case FS_APPROACH:
+	case FS_WALK:
 		if (d > APPROACH_STOP) {
+			f->x += dir * WALK_SPEED * g_step;
+		} else {
+			f->state = FS_IDLE;
+			f->cooldown = 2 + (rnd(fg) % 8);
+			set_anim(f, f->anim_idle);
+		}
+		break;
+	case FS_RETREAT:
+		f->x -= dir * WALK_SPEED * g_step;
+		if (--f->cooldown <= 0 || d > APPROACH_STOP + 1500) {
+			f->state = FS_IDLE;
+			f->cooldown = 4 + (rnd(fg) % 10);
+			set_anim(f, f->anim_idle);
+		}
+		break;
+	case FS_APPROACH:
+		if (d > APPROACH_STOP + 600) {
 			f->x += dir * RUN_SPEED * g_step;
+		} else if (d > APPROACH_STOP) {
+			f->state = FS_WALK;                            /* slow down for the last stretch */
+			set_anim(f, f->anim_run);
+			f->pose.speed = 128;
 		} else {
 			f->state = FS_IDLE;
 			f->cooldown = 4 + (rnd(fg) % 12);
