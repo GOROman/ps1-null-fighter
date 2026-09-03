@@ -67,8 +67,8 @@ typedef struct {
 } ModelAsset;
 
 static const ModelAsset assets[] = {
-	{ schoolgirl_bin, { schoolgirl_tim, schoolgirl_face_tim, schoolgirl_skirt_tim }, 0, 1 },
 	{ character_bin,  { character_tim, 0, 0 }, 2048, 0 },   /* boots on the animated character */
+	{ schoolgirl_bin, { schoolgirl_tim, schoolgirl_face_tim, schoolgirl_skirt_tim }, 0, 1 },
 };
 #define NUM_ASSETS ((int)(sizeof(assets) / sizeof(assets[0])))
 
@@ -104,6 +104,17 @@ static void init_graphics(void) {
 	FntLoad(960, 0);
 	fnt_hud = FntOpen(12, 8, SCREEN_XRES - 20, 16, 0, 64);                 /* game HUD, top */
 	fnt_dbg = FntOpen(12, SCREEN_YRES - 40, SCREEN_XRES - 20, 32, 0, 256);  /* debug, bottom */
+}
+
+/* index of the animation whose name starts with `name` (0 if none) */
+static int find_anim(const Model *m, const char *name) {
+	for (int i = 0; i < m->hdr->nanims; i++) {
+		const char *a = m->anims[i].name;
+		int k = 0;
+		while (name[k] && a[k] == name[k]) k++;
+		if (!name[k]) return i;
+	}
+	return 0;
 }
 
 /* sin(2 pi (t / period + phase / 4096)) in 4096 units, via the GTE rotation matrix */
@@ -204,6 +215,31 @@ static char *prof_draw(uint32_t *ot, char *nextpri) {
 		if (i != PROF_VSYNC) busy += prof_stage[i];
 	if (busy > prof_peak_acc) prof_peak_acc = busy;
 	if (++prof_peak_n >= 30) { prof_peak = prof_peak_acc; prof_peak_acc = 0; prof_peak_n = 0; }
+
+	/* marks are added first: primitives added later to the same OT bucket
+	 * are drawn earlier, so these end up on top of the stage tiles */
+	{
+		/* peak line (yellow, solid, across both columns) */
+		int col = prof_peak / PROF_FRAME, in_col = prof_peak % PROF_FRAME;
+		if (col <= 3) {
+			setTile(t);
+			setRGB0(t, 255, 255, 0);
+			setXY0(t, PROF_X - 1, PROF_Y + (in_col * PROF_SCALE) / PROF_FRAME);
+			setWH(t, (PROF_W + 2) * (col + 1), 1);
+			addPrim(ot, t);
+			t++;
+		}
+		/* half-frame and full-frame marks */
+		for (int k = 1; k <= 2; k++) {
+			int c = k == 2 ? 255 : 160;
+			setTile(t);
+			setRGB0(t, c, c, c);
+			setXY0(t, PROF_X - 1, PROF_Y + (PROF_SCALE * k) / 2);
+			setWH(t, PROF_W + 2, 1);
+			addPrim(ot, t);
+			t++;
+		}
+	}
 	for (int i = 0; i < PROF_STAGES; i++) {
 		int left = prof_stage[i];
 		while (left > 0) {
@@ -225,28 +261,6 @@ static char *prof_draw(uint32_t *ot, char *nextpri) {
 			pos += n;
 			left -= n;
 		}
-	}
-	/* peak line (yellow) */
-	{
-		int col = prof_peak / PROF_FRAME, in_col = prof_peak % PROF_FRAME;
-		if (col <= 3) {
-			setTile(t);
-			setRGB0(t, 255, 255, 0);
-			setXY0(t, PROF_X + col * (PROF_W + 2) - 1, PROF_Y + (in_col * PROF_SCALE) / PROF_FRAME);
-			setWH(t, PROF_W + 2, 1);
-			addPrim(ot, t);
-			t++;
-		}
-	}
-	/* half-frame and full-frame marks */
-	for (int k = 1; k <= 2; k++) {
-		int c = k == 2 ? 255 : 160;
-		setTile(t);
-		setRGB0(t, c, c, c);
-		setXY0(t, PROF_X - 1, PROF_Y + (PROF_SCALE * k) / 2);
-		setWH(t, PROF_W + 2, 1);
-		addPrim(ot, t);
-		t++;
 	}
 	return (char *)t;
 }
@@ -302,9 +316,7 @@ int main(void) {
 	model_yaw = assets[cur_asset].yaw;
 	camera_init(&cam);
 	prof_init();
-	pose_init(&pose, &model, 0);
-	ik_enter(&ik, &model, &pose);
-	dance = 1;
+	pose_init(&pose, &model, find_anim(&model, "RUN"));
 
 	InitPAD(pad_buff[0], 34, pad_buff[1], 34);
 	StartPAD();
@@ -441,7 +453,12 @@ int main(void) {
 			walker_reset(&walker, &model);
 			renderer.cut = walker.tri_cut;
 			model_yaw = assets[cur_asset].yaw;
-			pose_init(&pose, &model, 0);
+			pose_init(&pose, &model, find_anim(&model, "RUN"));
+			if (assets[cur_asset].look_at) {          /* the schoolgirl starts dancing */
+				ik_enter(&ik, &model, &pose);
+				dance = 1;
+				dance_t = 0;
+			}
 		}
 
 		camera_orbit(&cam, dyaw, dpitch, ddist);
