@@ -1135,9 +1135,12 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
         hip_bind_rot = to_ps1_matrix(bone_bind_global[hip])[:3, :3]
         fwd_local = np.linalg.inv(hip_bind_rot) @ front_ps1
         for a in anims:
+            # attacks are aligned at their impact frame (40%), other clips at the start
+            name = a["name"].lower()
+            fr = int((a["nframes"] - 1) * 0.4) if any(k in name for k in ("kick", "box", "punch", "shoot")) else 0
             world = [None] * nb
             for b in range(nb):
-                m = quat_to_mat3(a["q"][0, b])
+                m = quat_to_mat3(a["q"][fr, b])
                 p = parents[b]
                 world[b] = m if p < 0 else world[p] @ m
             fwd = world[hip] @ fwd_local
