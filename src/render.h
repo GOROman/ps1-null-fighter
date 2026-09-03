@@ -28,6 +28,8 @@ typedef struct {
 	int shading;
 	int tris_drawn;
 	const uint8_t *cut;          /* per model triangle: 1 = do not draw (cloth cut out); NULL = none */
+	const uint8_t *bone_mask;    /* per bone: 0 = skip (NULL = draw everything) */
+	int otz_shift, otz_base, otz_limit;   /* OT index = (sz0+sz1+sz2 >> otz_shift) + otz_base, < otz_limit */
 } Renderer;
 
 /* tims[i] may be NULL (unused slots fall back to slot 0) */

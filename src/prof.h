@@ -20,7 +20,8 @@ enum {
 #define TIMER1_COUNT (*(volatile uint16_t *)0x1F801110)
 #define TIMER1_MODE  (*(volatile uint32_t *)0x1F801114)
 
-extern uint16_t prof_stage[PROF_STAGES];   /* h-blanks spent per stage (last frame) */
+extern uint16_t prof_stage[PROF_STAGES];   /* h-blanks per stage, accumulating over the current frame */
+extern uint16_t prof_shown[PROF_STAGES];   /* completed previous frame (drawn / printed) */
 extern uint16_t prof_last;
 
 static inline void prof_init(void) {
@@ -28,11 +29,20 @@ static inline void prof_init(void) {
 	prof_last = TIMER1_COUNT;
 }
 
-/* close the given stage: everything since the previous mark belongs to it */
+/* close the given stage: everything since the previous mark belongs to it
+ * (a stage may be marked several times per frame, e.g. two render passes) */
 static inline void prof_mark(int stage) {
 	uint16_t now = TIMER1_COUNT;
-	prof_stage[stage] = (uint16_t)(now - prof_last);
+	prof_stage[stage] += (uint16_t)(now - prof_last);
 	prof_last = now;
+}
+
+/* frame boundary: publish the finished frame and start accumulating anew */
+static inline void prof_frame(void) {
+	for (int i = 0; i < PROF_STAGES; i++) {
+		prof_shown[i] = prof_stage[i];
+		prof_stage[i] = 0;
+	}
 }
 
 #endif

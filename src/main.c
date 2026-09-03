@@ -6,6 +6,7 @@
  *   SELECT + D-pad       orbit camera (for digital pads)
  *   SELECT + Triangle/Cross   camera up / down
  *   SELECT + Square      reset the cloth
+ *   SELECT + Circle      face picture-in-picture on / off
  *   Triangle / Cross     dolly in / out (distance)
  *   Square / Circle      zoom in / out (field of view)
  *   L1                   rotate model (yaw)
@@ -64,18 +65,116 @@ typedef struct {
 	const uint32_t *tims[MAX_TEX];          /* body, face, skirt (NULL = unused) */
 	int yaw;                                /* model yaw that faces the camera */
 	int look_at;                            /* head always turned towards the camera */
+	int pip;                                /* face picture-in-picture on by default */
 } ModelAsset;
 
 static const ModelAsset assets[] = {
-	{ character_bin,  { character_tim, 0, 0 }, 2048, 0 },   /* boots on the animated character */
-	{ schoolgirl_bin, { schoolgirl_tim, schoolgirl_face_tim, schoolgirl_skirt_tim }, 0, 1 },
+	{ character_bin,  { character_tim, 0, 0 }, 0, 0, 1 },      /* boots on the animated character */
+	{ schoolgirl_bin, { schoolgirl_tim, schoolgirl_face_tim, schoolgirl_skirt_tim }, 0, 1, 0 },  /* PiP costs too much here */
 };
 #define NUM_ASSETS ((int)(sizeof(assets) / sizeof(assets[0])))
 
 static uint8_t pad_buff[2][34];
-static int fnt_hud = -1, fnt_dbg = -1;
+static int fnt_hud = -1, fnt_dbg = -1, fnt_fps = -1;
+
+/* Face camera picture-in-picture: the head bone rendered again from a
+ * camera in front of the face into a small box at the top right, clipped
+ * with DR_AREA.  Its primitives use OT indices 1..PIP_OT-1 so they are drawn
+ * after the main scene. */
+#define PIP_W    80
+#define PIP_H    80
+#define PIP_X    (SCREEN_XRES - 8 - PIP_W)
+#define PIP_Y    22
+#define PIP_OT   48
+// #define PIP_NOCLIP 1
+static char *draw_face_pip(Renderer *r, const Model *m, const Pose *pose, int model_yaw,
+                           const DRAWENV *env, uint32_t *ot, char *nextpri) {
+	if (!m->ik || m->ik->head < 0) return nextpri;
+	static uint8_t mask[MAX_BONES];
+	memset(mask, 0, sizeof(mask));
+	mask[m->ik->head] = 1;
+	/* camera in front of the face: along the head's forward vector (model
+	 * space), looking back at a point a little above the head joint, so it
+	 * follows the face whatever the model / head rotation is */
+	(void)model_yaw;
+	Camera pc;
+	camera_init(&pc);
+	pc.fov = 120;
+	const MATRIX *wh = &pose->world[m->ik->head];
+	VECTOR fwd_local = vec(m->ik->head_fwd[0], m->ik->head_fwd[1], m->ik->head_fwd[2]), fwd;
+	ApplyMatrixLV((MATRIX *)wh, &fwd_local, &fwd);
+	/* the camera position follows the point in front of the face with a
+	 * low-pass lag (1/10 of the gap per frame); the look-at target is the
+	 * face itself, every frame */
+	static VECTOR lp_pos;
+	static int lp_init;
+	VECTOR f_now = vnorm(fwd);                              /* head forward, 4096 */
+	VECTOR target = vec(wh->t[0], wh->t[1] - 300, wh->t[2]); /* face centre, a bit above the joint */
+	const int dist = 1300;                                  /* close-up */
+	VECTOR want = vadd(target, vscale(f_now, dist));
+	if (!lp_init) { lp_pos = want; lp_init = 1; }
+	lp_pos.vx += (want.vx - lp_pos.vx) / 10;
+	lp_pos.vy += (want.vy - lp_pos.vy) / 10;
+	lp_pos.vz += (want.vz - lp_pos.vz) / 10;
+	VECTOR campos = lp_pos;
+	VECTOR d = vnorm(vsub(target, campos));                 /* view direction: at the face */
+	if (d.vx == 0 && d.vy == 0 && d.vz == 0) d = vscale(f_now, -4096);
+	VECTOR up0 = vec(0, 4096, 0);                           /* y is down: "up" row = +y */
+	VECTOR rt = vnorm(vcross(up0, d));
+	if (rt.vx == 0 && rt.vy == 0 && rt.vz == 0) rt = vec(4096, 0, 0);
+	VECTOR u = vcross(d, rt);
+	MATRIX *v = &pc.view;
+	v->m[0][0] = rt.vx; v->m[0][1] = rt.vy; v->m[0][2] = rt.vz;
+	v->m[1][0] = u.vx; v->m[1][1] = u.vy; v->m[1][2] = u.vz;
+	v->m[2][0] = d.vx; v->m[2][1] = d.vy; v->m[2][2] = d.vz;
+	VECTOR cr;
+	ApplyMatrixLV(v, &campos, &cr);                          /* t = -R * campos */
+	v->t[0] = -cr.vx; v->t[1] = -cr.vy; v->t[2] = -cr.vz;
+	gte_SetGeomOffset(PIP_X + PIP_W / 2, PIP_Y + PIP_H / 2);
+	gte_SetGeomScreen(pc.fov);
+	Renderer pr = *r;
+	pr.bone_mask = mask;
+	pr.otz_shift = 2 + OTZ_SHIFT + 3;      /* compress the depth range into the PiP's OT slice */
+	pr.otz_base = 1;
+	pr.otz_limit = PIP_OT;
+	/* clip to the box while the PiP is drawn: set at PIP_OT (drawn before
+	 * its primitives), restore at 0 (drawn after) */
+	TILE *bg = (TILE *)nextpri;
+	setTile(bg);
+	setRGB0(bg, 20, 24, 40);
+	setXY0(bg, PIP_X, PIP_Y);
+	setWH(bg, PIP_W, PIP_H);
+	addPrim(ot + PIP_OT, bg);
+	nextpri = (char *)(bg + 1);
+	/* DR_AREA takes VRAM coordinates: offset by this buffer's clip origin */
+	DR_AREA *da = (DR_AREA *)nextpri;
+	RECT rc = { env->clip.x + PIP_X, env->clip.y + PIP_Y, PIP_W, PIP_H };
+	setDrawArea(da, &rc);
+#ifndef PIP_NOCLIP
+	addPrim(ot + PIP_OT, da);
+#endif
+	nextpri = (char *)(da + 1);
+	nextpri = render_model(&pr, m, pose, &pc, ot, nextpri);
+	/* frame: added before the restore so it is drawn after it (bucket 0 is
+	 * drawn newest first) */
+	TILE *fr = (TILE *)nextpri;
+	setTile(fr); setRGB0(fr, 200, 200, 210); setXY0(fr, PIP_X - 1, PIP_Y - 1); setWH(fr, PIP_W + 2, 1); addPrim(ot, fr); fr++;
+	setTile(fr); setRGB0(fr, 200, 200, 210); setXY0(fr, PIP_X - 1, PIP_Y + PIP_H); setWH(fr, PIP_W + 2, 1); addPrim(ot, fr); fr++;
+	setTile(fr); setRGB0(fr, 200, 200, 210); setXY0(fr, PIP_X - 1, PIP_Y); setWH(fr, 1, PIP_H); addPrim(ot, fr); fr++;
+	setTile(fr); setRGB0(fr, 200, 200, 210); setXY0(fr, PIP_X + PIP_W, PIP_Y); setWH(fr, 1, PIP_H); addPrim(ot, fr); fr++;
+	nextpri = (char *)fr;
+	DR_AREA *dr = (DR_AREA *)nextpri;
+	RECT full = env->clip;
+	setDrawArea(dr, &full);
+#ifndef PIP_NOCLIP
+	addPrim(ot, dr);
+#endif
+	nextpri = (char *)(dr + 1);
+	return nextpri;
+}
 
 uint16_t prof_stage[PROF_STAGES];
+uint16_t prof_shown[PROF_STAGES];
 uint16_t prof_last;
 
 static void init_graphics(void) {
@@ -104,6 +203,7 @@ static void init_graphics(void) {
 	FntLoad(960, 0);
 	fnt_hud = FntOpen(12, 8, SCREEN_XRES - 20, 16, 0, 64);                 /* game HUD, top */
 	fnt_dbg = FntOpen(12, SCREEN_YRES - 40, SCREEN_XRES - 20, 32, 0, 256);  /* debug, bottom */
+	fnt_fps = FntOpen(SCREEN_XRES - 8 - 64, 8, 64, 8, 0, 16);                /* FPS, top right */
 }
 
 /* index of the animation whose name starts with `name` (0 if none) */
@@ -129,8 +229,8 @@ static int dance_sin(int t, int period, int phase) {
  * space, feet level).  The grid vertices are projected once through the
  * GTE; a cell is drawn as a flat quad when its four corners are in front
  * of the near plane and it fits the GPU's primitive size limit. */
-#define GRID_STEP  900
-#define GRID_N     5                      /* cells from -N..N-1 in each direction */
+#define GRID_STEP  1100
+#define GRID_N     4                      /* cells from -N..N-1 in each direction */
 #define GRID_V     (2 * GRID_N + 1)
 #define GRID_NEAR  96
 static char *draw_floor(const Camera *cam, uint32_t *ot, char *nextpri) {
@@ -212,7 +312,7 @@ static char *prof_draw(uint32_t *ot, char *nextpri) {
 	 * half second, updated every 0.5 s */
 	int busy = 0;
 	for (int i = 0; i < PROF_STAGES; i++)
-		if (i != PROF_VSYNC) busy += prof_stage[i];
+		if (i != PROF_VSYNC) busy += prof_shown[i];
 	if (busy > prof_peak_acc) prof_peak_acc = busy;
 	if (++prof_peak_n >= 30) { prof_peak = prof_peak_acc; prof_peak_acc = 0; prof_peak_n = 0; }
 
@@ -241,7 +341,7 @@ static char *prof_draw(uint32_t *ot, char *nextpri) {
 		}
 	}
 	for (int i = 0; i < PROF_STAGES; i++) {
-		int left = prof_stage[i];
+		int left = prof_shown[i];
 		while (left > 0) {
 			int col = pos / PROF_FRAME;
 			int in_col = pos % PROF_FRAME;
@@ -270,6 +370,7 @@ static void display(void) {
 	prof_mark(PROF_GPU);
 	VSync(0);
 	prof_mark(PROF_VSYNC);
+	prof_frame();
 	db_active ^= 1;
 	db_nextpri = db[db_active].p;
 	ClearOTagR(db[db_active].ot, OT_LEN);
@@ -293,6 +394,7 @@ int main(void) {
 	int dance = 0;             /* IK mode: hip driven by sines instead of the d-pad */
 	int dance_t = 0;
 	int shy = 0;               /* frames left of the "cloth fell" reaction */
+	int pip = assets[0].pip;   /* face picture-in-picture on / off (SELECT + circle) */
 	int clear_t = 0;           /* frames since the whole skirt was cut */
 	int seen_cuts = 0;
 	memset(&ik, 0, sizeof(ik));
@@ -361,8 +463,10 @@ int main(void) {
 				renderer.cut = walker.tri_cut;
 				clear_t = 0;
 			}
-			if (held & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT | PAD_TRIANGLE | PAD_CROSS | PAD_SQUARE))
-				combo_used = 1;               /* do not toggle shading on release */
+			if (pressed & PAD_CIRCLE)
+				pip ^= 1;
+			if (held & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT | PAD_TRIANGLE | PAD_CROSS | PAD_SQUARE | PAD_CIRCLE))
+				combo_used = 1;               /* not a plain SELECT tap */
 		} else {
 			/* d-pad steers the monkey on the cloth grid (screen directions);
 			 * without a grid it orbits the camera */
@@ -453,6 +557,8 @@ int main(void) {
 			walker_reset(&walker, &model);
 			renderer.cut = walker.tri_cut;
 			model_yaw = assets[cur_asset].yaw;
+			camera_init(&cam);                         /* back in front of the character */
+			pip = assets[cur_asset].pip;
 			pose_init(&pose, &model, find_anim(&model, "RUN"));
 			if (assets[cur_asset].look_at) {          /* the schoolgirl starts dancing */
 				ik_enter(&ik, &model, &pose);
@@ -482,6 +588,14 @@ int main(void) {
 		db_nextpri = draw_floor(&cam, db[db_active].ot, db_nextpri);
 		db_nextpri = walker_draw(&walker, &model, &renderer, render_get_cache(), db[db_active].ot, db_nextpri);
 		db_nextpri = prof_draw(db[db_active].ot, db_nextpri);
+		if (pip) {
+			/* the OT built now is drawn after the buffer swap, i.e. with the
+			 * other draw environment: its clip origin is the one DR_AREA needs */
+			db_nextpri = draw_face_pip(&renderer, &model, &pose, model_yaw, &db[1 - db_active].draw,
+			                           db[db_active].ot, db_nextpri);
+			gte_SetGeomOffset(CENTERX, CENTERY);
+			gte_SetGeomScreen(cam.fov);
+		}
 
 		const ModelAnim *a = &model.anims[pose.anim];
 		/* game HUD (top) */
@@ -498,11 +612,13 @@ int main(void) {
 			         pose.frame, a->nframes, pose.playing ? "" : "PAUSE");
 		else
 			FntPrint(fnt_dbg, "\n");
-		FntPrint(fnt_dbg, "%s TRI%d FPS%d CPU%d FOV%d\n",
-		         renderer.shading == SHADE_FLAT ? "FLAT" : "GOUR", renderer.tris_drawn, fps,
-		         prof_stage[PROF_INPUT] + prof_stage[PROF_POSE] + prof_stage[PROF_VERTS] +
-		         prof_stage[PROF_PRIMS] + prof_stage[PROF_MISC], cam.fov);
+		FntPrint(fnt_dbg, "%s TRI%d CPU%d FOV%d Y%d/%d\n",
+		         renderer.shading == SHADE_FLAT ? "FLAT" : "GOUR", renderer.tris_drawn,
+		         prof_shown[PROF_INPUT] + prof_shown[PROF_POSE] + prof_shown[PROF_VERTS] +
+		         prof_shown[PROF_PRIMS] + prof_shown[PROF_MISC], cam.fov, model_yaw, cam.yaw);
 		FntFlush(fnt_dbg);
+		FntPrint(fnt_fps, "FPS %2d\n", fps);
+		FntFlush(fnt_fps);
 		prof_mark(PROF_MISC);
 
 		display();

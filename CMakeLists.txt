@@ -55,7 +55,7 @@ endfunction()
 convert_model(schoolgirl ${ASSET_SRC}/schoolgirl/schoolgirl.fbx ${ASSET_SRC}/schoolgirl/basecolor.jpg
               FACE SKIRT --target-tris ${MODEL_TRIS} --reatlas --autorig
               --remove-hidden 0.02 --skirt 0.39 0.49 --gen-body)
-convert_model(character ${ASSET_SRC}/character.fbx ${ASSET_SRC}/character.fbm/basecolor.jpg --front=-z)
+convert_model(character ${ASSET_SRC}/character.fbx ${ASSET_SRC}/character.fbm/basecolor.jpg --front=+z)
 add_custom_command(
 	OUTPUT  ${ASSET_OUT}/monkey.tim
 	COMMAND ${CMAKE_COMMAND} -E make_directory ${ASSET_OUT}

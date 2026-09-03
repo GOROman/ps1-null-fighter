@@ -71,6 +71,10 @@ void renderer_init(Renderer *r, const uint32_t *const tims[MAX_TEX]) {
 	r->shading = SHADE_GOURAUD;
 	r->tris_drawn = 0;
 	r->cut = 0;
+	r->bone_mask = 0;
+	r->otz_shift = 2 + OTZ_SHIFT;
+	r->otz_base = 0;
+	r->otz_limit = OT_LEN;
 
 	gte_SetBackColor(52, 52, 56);
 	gte_SetColorMatrix(&color_mtx);
@@ -97,7 +101,7 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 	/* ---- pass 1: transform + light vertices, bone by bone ---------------- */
 	for (int b = 0; b < nb; b++) {
 		const ModelBone *bone = &m->bones[b];
-		if (bone->vert_count == 0)
+		if (bone->vert_count == 0 || (r->bone_mask && !r->bone_mask[b]))
 			continue;
 		concat_view(&cam->view, &pose->world[b], &mv);
 		/* MulMatrix0 loads its first operand into the GTE rotation matrix,
@@ -153,6 +157,8 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 	const ModelTri *tri_end = tri + m->hdr->ntris;
 	static const uint8_t no_cut[4096];
 	const uint8_t *cut = r->cut ? r->cut : no_cut;
+	const uint8_t *mask = r->bone_mask;
+	const int otz_shift = r->otz_shift, otz_base = r->otz_base, otz_limit = r->otz_limit;
 	uint32_t clut_hi[MAX_TEX], tpage_hi[MAX_TEX];
 	for (int i = 0; i < MAX_TEX; i++) {
 		clut_hi[i]  = (uint32_t)r->clut[i] << 16;
@@ -162,10 +168,13 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 	if (r->shading == SHADE_GOURAUD) {
 		POLY_GT3 *pri = (POLY_GT3 *)nextpri;
 		for (; tri < tri_end; tri++) {
-			if (cut[tri - m->tris])
+			if (cut[tri - m->tris] || (mask && !mask[tri->bone]))
 				continue;
 			const int i0 = tri->i0;
 			int i1 = tri->i1, i2 = tri->i2;
+			/* with a bone mask every vertex must have been transformed too */
+			if (mask && (!mask[verts[i0].bone] || !mask[verts[i1].bone] || !mask[verts[i2].bone]))
+				continue;
 			const VCache *c0 = &vcache[i0], *c1 = &vcache[i1], *c2 = &vcache[i2];
 			int p;
 			gte_ldsxy3(c0->sxy, c1->sxy, c2->sxy);
@@ -180,8 +189,8 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 			const int sz0 = c0->sz, sz1 = c1->sz, sz2 = c2->sz;
 			if (!sz0 || !sz1 || !sz2)               /* vertex at/behind the camera */
 				continue;
-			int otz = (sz0 + sz1 + sz2) >> (2 + OTZ_SHIFT);   /* ~avg/3, cheap */
-			if (otz >= OT_LEN)
+			int otz = ((sz0 + sz1 + sz2) >> otz_shift) + otz_base;   /* ~avg/3, cheap */
+			if (otz >= otz_limit)
 				continue;
 			*(uint32_t *)&pri->r0 = c0->rgb;
 			*(uint32_t *)&pri->r1 = c1->rgb;
@@ -202,10 +211,13 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 		POLY_FT3 *pri = (POLY_FT3 *)nextpri;
 		int cur_bone = -1;
 		for (; tri < tri_end; tri++) {
-			if (cut[tri - m->tris])
+			if (cut[tri - m->tris] || (mask && !mask[tri->bone]))
 				continue;
 			const int i0 = tri->i0;
 			int i1 = tri->i1, i2 = tri->i2;
+			/* with a bone mask every vertex must have been transformed too */
+			if (mask && (!mask[verts[i0].bone] || !mask[verts[i1].bone] || !mask[verts[i2].bone]))
+				continue;
 			const VCache *c0 = &vcache[i0], *c1 = &vcache[i1], *c2 = &vcache[i2];
 			int p;
 			gte_ldsxy3(c0->sxy, c1->sxy, c2->sxy);
@@ -220,8 +232,8 @@ char *render_model(Renderer *r, const Model *m, const Pose *pose, const Camera *
 			const int sz0 = c0->sz, sz1 = c1->sz, sz2 = c2->sz;
 			if (!sz0 || !sz1 || !sz2)
 				continue;
-			int otz = (sz0 + sz1 + sz2) >> (2 + OTZ_SHIFT);
-			if (otz >= OT_LEN)
+			int otz = ((sz0 + sz1 + sz2) >> otz_shift) + otz_base;
+			if (otz >= otz_limit)
 				continue;
 			/* triangles are sorted by bone: reload the light matrix only when
 			 * the bone changes */
