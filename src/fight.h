@@ -11,7 +11,7 @@
 #include "render.h"
 #include "camera.h"
 
-enum { FS_IDLE, FS_APPROACH, FS_ATTACK, FS_HIT, FS_KO, FS_WIN };
+enum { FS_IDLE, FS_APPROACH, FS_BACKSTEP, FS_ATTACK, FS_HIT, FS_KO, FS_WIN };
 enum { FA_PUNCH, FA_KICK, FA_SPECIAL };
 
 typedef struct {
@@ -22,7 +22,7 @@ typedef struct {
 	int hp;                    /* 0..100 */
 	int state, attack, hit_done, cooldown;
 	int hp_disp;               /* displayed hp (drains slowly towards hp) */
-	int anim_idle, anim_run, anim_punch, anim_kick, anim_special, anim_hit, anim_ko, anim_win;
+	int anim_idle, anim_run, anim_punch, anim_kick, anim_special, anim_hit, anim_ko, anim_win, anim_jump;
 } Fighter;
 
 #define MAX_FX 6

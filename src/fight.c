@@ -13,12 +13,13 @@
 
 #define ROUND_FRAMES   (60 * 60)      /* 60 s */
 #define START_X        1500           /* fighters start at +-START_X */
-#define REACH_PUNCH    950
-#define REACH_KICK     1150
-#define REACH_SPECIAL  1350
-#define APPROACH_STOP  1000
-#define MIN_DIST       650
+#define REACH_PUNCH    1000
+#define REACH_KICK     1200
+#define REACH_SPECIAL  1400
+#define APPROACH_STOP  900
+#define MIN_DIST       700
 #define RUN_SPEED      44
+#define BACKSTEP_SPEED 34
 #define ATTACK_HIT_AT  40             /* % of the attack animation where it lands */
 #define FLOOR_OTZ      (OT_LEN - 1)
 
@@ -135,6 +136,7 @@ static void fighter_setup(Fighter *f, const Model *m, Renderer *r) {
 	f->anim_hit     = find_anim(m, "hit_to_body");
 	f->anim_ko      = find_anim(m, "defeat");
 	f->anim_win     = find_anim(m, "laugh");
+	f->anim_jump    = find_anim(m, "jump");
 }
 
 static void fighter_reset(Fighter *f, int side) {
@@ -203,13 +205,26 @@ static void fighter_ai(Fight *fg, int i) {
 				f->state = FS_ATTACK;
 				f->hit_done = 0;
 				set_anim(f, f->attack == FA_PUNCH ? f->anim_punch : f->attack == FA_KICK ? f->anim_kick : f->anim_special);
-			} else if (r < 60 && d < MIN_DIST + 300) {
-				f->x -= dir * 24 * g_step;                 /* step back */
+			} else if (r < 62 || (r < 75 && d < MIN_DIST + 250)) {
+				f->state = FS_BACKSTEP;                    /* hop back to reset the spacing */
+				set_anim(f, f->anim_jump);
 			} else {
 				f->cooldown = 8 + (rnd(fg) % 30);
 			}
 		}
 		break;
+	case FS_BACKSTEP: {
+		/* move back during the first 60% of the hop, then land */
+		int pct = a->nframes > 1 ? (f->pose.frame * 100) / (a->nframes - 1) : 100;
+		if (pct < 60 && d < APPROACH_STOP + 700)
+			f->x -= dir * BACKSTEP_SPEED * g_step;
+		if (f->pose.loops > 0) {
+			f->state = FS_IDLE;
+			f->cooldown = 6 + (rnd(fg) % 20);
+			set_anim(f, f->anim_idle);
+		}
+		break;
+	}
 	case FS_APPROACH:
 		if (d > APPROACH_STOP) {
 			f->x += dir * RUN_SPEED * g_step;
