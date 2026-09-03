@@ -198,7 +198,7 @@ static void start_attack(Fighter *f, int attack) {
 	f->state = FS_ATTACK;
 	f->hit_done = 0;
 	set_anim(f, attack == FA_PUNCH ? f->anim_punch : attack == FA_KICK ? f->anim_kick : f->anim_special);
-	f->pose.speed = attack == FA_KICK ? 512 : 256;      /* kicks play at double speed */
+	f->pose.speed = attack == FA_SPECIAL ? 320 : 512;   /* punches and kicks at double speed, specials a bit faster */
 }
 
 static int reach_of(int attack) {
@@ -232,7 +232,7 @@ static void fighter_ai(Fight *fg, int i) {
 				f->state = FS_BACKSTEP;                    /* hop back to reset the spacing */
 				set_anim(f, f->anim_jump);
 			} else {
-				f->cooldown = 8 + (rnd(fg) % 30);
+				f->cooldown = 4 + (rnd(fg) % 16);
 			}
 		}
 		break;
