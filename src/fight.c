@@ -316,16 +316,12 @@ static void fighter_ai(Fight *fg, int i) {
 					o->hp = 0;
 					o->state = FS_KO;
 					set_anim(o, o->anim_ko);
-				} else if (f->attack == FA_KICK) {
-					o->state = FS_DOWN;                    /* kicks knock the opponent down */
-					set_anim(o, o->anim_fall);
-					o->pose.speed = 384;
-					o->down_phase = 0;
 				} else {
 					o->state = FS_HIT;
 					set_anim(o, o->anim_hit);
 				}
-				o->kb = dir * (f->attack == FA_PUNCH ? 70 : f->attack == FA_KICK ? 110 : 140);   /* pushed away */
+				/* pushed away: kicks send the opponent flying */
+				o->kb = dir * (f->attack == FA_PUNCH ? 70 : f->attack == FA_KICK ? 260 : 150);
 				fg->hitstop = f->attack == FA_PUNCH ? 5 : 8;
 			}
 		}
@@ -538,7 +534,7 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 		Fighter *f = &fg->f[i];
 		if (f->kb) {
 			f->x += f->kb * g_step;
-			f->kb = (f->kb * 3) / 4;
+			f->kb = (f->kb * 13) / 16;
 			if (f->kb > -6 && f->kb < 6) f->kb = 0;
 		}
 	}
