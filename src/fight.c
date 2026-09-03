@@ -138,6 +138,7 @@ static void fighter_setup(Fighter *f, const Model *m, Renderer *r) {
 	f->anim_ko      = find_anim(m, "defeat");
 	f->anim_win     = find_anim(m, "laugh");
 	f->anim_jump    = find_anim(m, "jump");
+	f->anim_fall    = find_anim(m, "fall");
 }
 
 static void fighter_reset(Fighter *f, int side) {
@@ -220,6 +221,8 @@ static void fighter_ai(Fight *fg, int i) {
 		if (d > APPROACH_STOP + 200) {
 			f->state = FS_APPROACH;
 			set_anim(f, f->anim_run);
+		} else if (o->state == FS_DOWN) {
+			f->cooldown = 10;                              /* let them get up */
 		} else if (o->state != FS_KO) {
 			uint32_t r = rnd(fg) % 100;
 			if (r < 45) {
@@ -268,7 +271,7 @@ static void fighter_ai(Fight *fg, int i) {
 		int pct = a->nframes > 1 ? (f->pose.frame * 100) / (a->nframes - 1) : 100;
 		if (!f->hit_done && pct >= ATTACK_HIT_AT) {
 			f->hit_done = 1;
-			if (d <= reach_of(f->attack) && o->state != FS_KO && o->state != FS_HIT) {
+			if (d <= reach_of(f->attack) && o->state != FS_KO && o->state != FS_HIT && o->state != FS_DOWN) {
 				int dmg = f->attack == FA_PUNCH ? 9 : f->attack == FA_KICK ? 14 : 20;
 				o->hp -= dmg;
 				/* hit effect at the opponent's chest, camera shake */
@@ -283,6 +286,10 @@ static void fighter_ai(Fight *fg, int i) {
 					o->hp = 0;
 					o->state = FS_KO;
 					set_anim(o, o->anim_ko);
+				} else if (f->attack == FA_KICK) {
+					o->state = FS_DOWN;                    /* kicks knock the opponent down */
+					set_anim(o, o->anim_fall);
+					o->pose.speed = 384;
 				} else {
 					o->state = FS_HIT;
 					set_anim(o, o->anim_hit);
@@ -304,6 +311,13 @@ static void fighter_ai(Fight *fg, int i) {
 		}
 		break;
 	}
+	case FS_DOWN:
+		if (f->pose.loops > 0) {                       /* back on their feet */
+			f->state = FS_IDLE;
+			f->cooldown = 20 + (rnd(fg) % 20);
+			set_anim(f, f->anim_idle);
+		}
+		break;
 	case FS_HIT:
 		if (f->pose.loops > 0) {
 			f->state = FS_IDLE;

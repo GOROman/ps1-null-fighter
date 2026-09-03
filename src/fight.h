@@ -11,7 +11,7 @@
 #include "render.h"
 #include "camera.h"
 
-enum { FS_IDLE, FS_APPROACH, FS_BACKSTEP, FS_ATTACK, FS_HIT, FS_KO, FS_WIN };
+enum { FS_IDLE, FS_APPROACH, FS_BACKSTEP, FS_ATTACK, FS_HIT, FS_DOWN, FS_KO, FS_WIN };
 enum { FA_PUNCH, FA_KICK, FA_SPECIAL };
 
 typedef struct {
@@ -25,7 +25,7 @@ typedef struct {
 	int kb;                    /* knock back velocity (units per frame, signed), decays */
 	int last_backstep;         /* the previous idle decision was a backstep: do not chain them */
 	int hp_disp;               /* displayed hp (drains slowly towards hp) */
-	int anim_idle, anim_run, anim_punch, anim_kick, anim_special, anim_hit, anim_ko, anim_win, anim_jump;
+	int anim_idle, anim_run, anim_punch, anim_kick, anim_special, anim_hit, anim_ko, anim_win, anim_jump, anim_fall;
 } Fighter;
 
 #define MAX_FX 6
