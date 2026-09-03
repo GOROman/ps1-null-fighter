@@ -329,8 +329,8 @@ static void fighter_ai(Fight *fg, int i) {
 				fg->hitstop = f->attack == FA_PUNCH ? 5 : 8;
 			}
 		}
-		/* chain the next attack of the combo a little before the clip ends */
-		if (f->pose.loops > 0 || (pct >= 85 && f->combo_i + 1 < f->combo_len)) {
+		/* combos cut the recovery half of each clip: chain right after the hit */
+		if (f->pose.loops > 0 || (pct >= 55 && f->combo_i + 1 < f->combo_len)) {
 			if (f->combo_i + 1 < f->combo_len && o->state != FS_KO) {
 				f->combo_i++;
 				start_attack(f, f->combo[f->combo_i]);
