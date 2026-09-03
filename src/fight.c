@@ -208,6 +208,35 @@ static int reach_of(int attack) {
 
 static int g_step = 1;      /* movement multiplier: 1 at 60 Hz, 2 at 30 Hz */
 
+/* world position of a bone joint (fighter placement applied) */
+static VECTOR bone_world(const Fighter *f, int bone) {
+	const MATRIX *w = &f->pose.world[bone];
+	VECTOR h = vec(w->t[0], w->t[1], w->t[2]);
+	SVECTOR r = { 0, f->yaw, 0, 0 };
+	MATRIX m4;
+	RotMatrix(&r, &m4);
+	VECTOR out;
+	ApplyMatrixLV(&m4, &h, &out);
+	return vec(out.vx + f->x, out.vy, out.vz + f->z);
+}
+
+/* the hand (punch / special) or foot (kick) closest to the opponent */
+static VECTOR strike_point(const Fighter *f, int dir) {
+	const ModelIK *ik = f->model->ik;
+	int ca = f->attack == FA_KICK ? IK_LEG_L : IK_ARM_L;
+	int cb = f->attack == FA_KICK ? IK_LEG_R : IK_ARM_R;
+	VECTOR best = vec(f->x + dir * 500, -2500, f->z);
+	int best_d = -1 << 30;
+	for (int c = ca; c <= cb; c++) {
+		if (!ik || ik->chains[c].upper < 0) continue;
+		int b = ik->chains[c].end >= 0 ? ik->chains[c].end : ik->chains[c].lower;
+		VECTOR p = bone_world(f, b);
+		int dd = (p.vx - f->x) * dir;
+		if (dd > best_d) { best_d = dd; best = p; }
+	}
+	return best;
+}
+
 static void fighter_ai(Fight *fg, int i) {
 	Fighter *f = &fg->f[i], *o = &fg->f[1 - i];
 	int dir = (o->x > f->x) ? 1 : -1;
@@ -274,11 +303,12 @@ static void fighter_ai(Fight *fg, int i) {
 			if (d <= reach_of(f->attack) && o->state != FS_KO && o->state != FS_HIT && o->state != FS_DOWN) {
 				int dmg = f->attack == FA_PUNCH ? 9 : f->attack == FA_KICK ? 14 : 20;
 				o->hp -= dmg;
-				/* hit effect at the opponent's chest, camera shake */
+				/* hit effect at the striking hand / foot, camera shake */
+				VECTOR sp = strike_point(f, dir);
 				for (int k = 0; k < MAX_FX; k++) {
 					if (fg->fx[k].active) continue;
 					fg->fx[k].active = 1; fg->fx[k].t = 0;
-					fg->fx[k].x = o->x - dir * 250; fg->fx[k].y = -2500; fg->fx[k].z = o->z;
+					fg->fx[k].x = sp.vx; fg->fx[k].y = sp.vy; fg->fx[k].z = sp.vz;
 					break;
 				}
 				fg->shake = 14;
