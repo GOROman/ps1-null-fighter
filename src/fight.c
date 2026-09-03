@@ -149,6 +149,8 @@ static void fighter_reset(Fighter *f, int side) {
 	f->yaw = side ? 1024 : 3072;      /* models face -Z at yaw 0; +-90 deg faces the opponent */
 	f->hp = 100;
 	f->hp_disp = 100;
+	f->plan_special = 0;
+	f->special_cd = 0;
 	f->state = FS_IDLE;
 	f->cooldown = 30;
 	f->hit_done = 0;
@@ -190,8 +192,8 @@ static const int COMBOS[][4] = {
 	{ FA_PUNCH, FA_PUNCH, FA_KICK, -1 },
 	{ FA_PUNCH, FA_KICK, -1, -1 },
 	{ FA_KICK, FA_PUNCH, -1, -1 },
-	{ FA_PUNCH, FA_PUNCH, FA_PUNCH, FA_SPECIAL },
-	{ FA_SPECIAL, -1, -1, -1 },
+	{ FA_PUNCH, FA_PUNCH, FA_PUNCH, FA_KICK },
+	{ FA_KICK, FA_KICK, -1, -1 },
 	{ FA_KICK, FA_KICK, -1, -1 },
 };
 #define NCOMBOS ((int)(sizeof(COMBOS) / sizeof(COMBOS[0])))
@@ -301,7 +303,21 @@ static void fighter_ai(Fight *fg, int i) {
 		int in_kick    = d <= REACH_KICK - 200;
 		uint32_t r = rnd(fg) % 100;
 
-		if (o_recovery || o_stunned) {
+		if (f->special_cd > 0) f->special_cd -= g_step;
+		if (f->plan_special) {
+			/* retreat done: unleash the spinning bird kick */
+			f->plan_special = 0;
+			f->special_cd = 10 * 60;
+			f->combo_len = 1; f->combo[0] = FA_SPECIAL; f->combo_i = 0;
+			start_attack(f, FA_SPECIAL);
+		} else if (f->hp < 35 && f->hp < o->hp && f->special_cd <= 0 && d <= REACH_SPECIAL + 600 &&
+		           o->state != FS_ATTACK) {
+			/* losing: back off a few steps, then the special covers the distance */
+			f->plan_special = 1;
+			f->state = FS_RETREAT;
+			f->cooldown = 16;
+			set_anim(f, f->anim_run); f->pose.speed = -128;
+		} else if (o_recovery || o_stunned) {
 			/* punish window: rush in with a combo (kick from farther out) */
 			if (in_punch) {
 				const int *c = COMBOS[2];                  /* P-P-K */
@@ -369,9 +385,9 @@ static void fighter_ai(Fight *fg, int i) {
 		break;
 	case FS_RETREAT:
 		f->x -= dir * WALK_SPEED * g_step;
-		if (--f->cooldown <= 0 || d > APPROACH_STOP + 1500) {
+		if (--f->cooldown <= 0 || (!f->plan_special && d > APPROACH_STOP + 1500)) {
 			f->state = FS_IDLE;
-			f->cooldown = 4 + (rnd(fg) % 10);
+			f->cooldown = f->plan_special ? 0 : 4 + (rnd(fg) % 10);
 			set_anim(f, f->anim_idle);
 		}
 		break;
@@ -433,11 +449,12 @@ static void fighter_ai(Fight *fg, int i) {
 					set_anim(o, o->anim_ko);
 				} else {
 					o->state = FS_HIT;
-					set_anim(o, o->anim_hit);
+					set_anim(o, o->anim_hit);              /* restarts on every hit */
+					o->pose.speed = 512;
 				}
 				/* pushed away: kicks send the opponent flying */
 				int last = f->combo_i + 1 >= f->combo_len;
-				o->kb = dir * (f->attack == FA_PUNCH ? (last ? 70 : 20) : f->attack == FA_KICK ? 260 : 40);
+				o->kb = dir * (f->attack == FA_PUNCH ? (last ? 70 : 36) : f->attack == FA_KICK ? 260 : 40);
 				fg->hitstop = f->attack == FA_PUNCH ? 5 : f->attack == FA_KICK ? 8 : 2;
 			} else if (pct > 65) {
 				f->hit_done = 1;

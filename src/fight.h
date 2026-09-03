@@ -23,6 +23,8 @@ typedef struct {
 	int state, attack, hit_done, cooldown;
 	int rehit_at;              /* special: clip % at which the next hit is armed */
 	int yaw_corr;              /* aim correction for the current attack (4096 = 360 deg) */
+	int plan_special;          /* retreating first, then the spinning bird kick */
+	int special_cd;            /* frames until the special may be used again */
 	int combo[4], combo_len, combo_i;   /* queued attack chain (FA_*) */
 	int kb;                    /* knock back velocity (units per frame, signed), decays */
 	int last_backstep;         /* the previous idle decision was a backstep: do not chain them */
