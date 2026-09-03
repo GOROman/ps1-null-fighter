@@ -13,13 +13,13 @@
 
 #define ROUND_FRAMES   (60 * 60)      /* 60 s */
 #define START_X        1500           /* fighters start at +-START_X */
-#define REACH_PUNCH    1000
-#define REACH_KICK     1200
-#define REACH_SPECIAL  1400
-#define APPROACH_STOP  900
-#define MIN_DIST       700
+#define REACH_PUNCH    1250
+#define REACH_KICK     1450
+#define REACH_SPECIAL  1650
+#define APPROACH_STOP  1200
+#define MIN_DIST       1000
 #define RUN_SPEED      44
-#define BACKSTEP_SPEED 34
+#define BACKSTEP_SPEED 48
 #define ATTACK_HIT_AT  40             /* % of the attack animation where it lands */
 #define FLOOR_OTZ      (OT_LEN - 1)
 
@@ -216,8 +216,8 @@ static void fighter_ai(Fight *fg, int i) {
 	case FS_BACKSTEP: {
 		/* move back during the first 60% of the hop, then land */
 		int pct = a->nframes > 1 ? (f->pose.frame * 100) / (a->nframes - 1) : 100;
-		if (pct < 60 && d < APPROACH_STOP + 700)
-			f->x -= dir * BACKSTEP_SPEED * g_step;
+		if (pct < 80 && d < APPROACH_STOP + 900)
+			f->x -= dir * BACKSTEP_SPEED * g_step;      /* away from the opponent */
 		if (f->pose.loops > 0) {
 			f->state = FS_IDLE;
 			f->cooldown = 6 + (rnd(fg) % 20);
@@ -307,11 +307,12 @@ static void auto_camera(Fight *fg, Camera *cam) {
 	VECTOR want_t;
 	switch (fg->phase) {
 	case FP_ROUND:
-		/* low, close sweep across the two fighters */
-		want_yaw = -700 + (fg->phase_t * 1400) / 150;
-		want_dist = 4400;
-		want_pitch = 60;
-		want_t = vec(mid, -2300, 0);
+		/* one full lap around the stage, low and close */
+		want_yaw = (fg->phase_t * 4096) / 150;
+		want_dist = 4600;
+		want_pitch = 70;
+		want_t = vec(mid, -2200, 0);
+		fg->cam_yaw = want_yaw & 4095;                    /* no lag: keep the lap smooth */
 		break;
 	case FP_KO:
 	case FP_END: {
