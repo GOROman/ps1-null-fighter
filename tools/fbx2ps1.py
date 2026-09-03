@@ -880,7 +880,7 @@ def build_ik_table(bone_names, parents, bone_bind_global, inv_bind, bind_local, 
 def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=False, texture=None,
             autorig=False, front=(0, 0, 1), face_tex=False, dump_uv=None, hidden_dist=0.0,
             double_sided=None, gen_skirt=False, gen_body=False, anim_from=None, keep_face=False,
-            face_weight=1.0, keep_eyes=False):
+            face_weight=1.0, keep_eyes=False, align_clips=True):
     global C_FBX_TO_PS1
     if scene.up_axis == 2:
         C_FBX_TO_PS1 = C_ZUP_TO_PS1 * np.array([[1], [scene.up_sign], [1]])
@@ -1053,6 +1053,8 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
             print("warning: bone %s has bind scale %s (ignored)" % (bone_names[b], scale))
         bind_local.append(rot)
 
+    ik_hint = build_ik_table(bone_names, parents, bone_bind_global, inv_bind, bind_local, front, rig, verbose)
+
     # ---- animations -------------------------------------------------------
     # first pass: sample local rotation/translation of every bone
     anims = []
@@ -1122,6 +1124,35 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
             trans[0, b] = bind_local[b][:3, 3] * UNIT_SCALE
         anims.append({"name": "static", "nframes": 1, "q": quats, "t": trans})
 
+    # ---- align each clip's facing with the bind pose --------------------
+    # Some clips (Tripo's front kick) are authored turned sideways.  Measure
+    # the hip's forward direction at frame 0 and undo that yaw on the root
+    # bone so every clip faces the same way (the runtime places the character
+    # by its own yaw).
+    if align_clips and ik_hint is not None and ik_hint.get("hip", -1) >= 0:
+        hip = ik_hint["hip"]
+        front_ps1 = C_FBX_TO_PS1 @ np.array(front, dtype=np.float64)
+        hip_bind_rot = to_ps1_matrix(bone_bind_global[hip])[:3, :3]
+        fwd_local = np.linalg.inv(hip_bind_rot) @ front_ps1
+        for a in anims:
+            world = [None] * nb
+            for b in range(nb):
+                m = quat_to_mat3(a["q"][0, b])
+                p = parents[b]
+                world[b] = m if p < 0 else world[p] @ m
+            fwd = world[hip] @ fwd_local
+            yaw = math.atan2(fwd[0], fwd[2]) - math.atan2(front_ps1[0], front_ps1[2])
+            yaw = (yaw + math.pi) % (2 * math.pi) - math.pi          # wrap to -180..180
+            if abs(math.degrees(yaw)) < 5:
+                continue
+            cy, sy = math.cos(-yaw), math.sin(-yaw)
+            ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+            for f in range(a["nframes"]):
+                a["q"][f, 0] = mat_to_quat(np.pad(ry @ quat_to_mat3(a["q"][f, 0]), ((0, 1), (0, 1))) + np.diag([0, 0, 0, 1]))
+                a["t"][f, 0] = ry @ a["t"][f, 0]
+            if verbose:
+                print("anim %-16s turned %.0f deg: root re-aligned" % (a["name"], math.degrees(yaw)))
+
     # translation-animated bones: translation varies (within an anim or vs bind)
     trans_animated = np.zeros(nb, dtype=bool)
     for a in anims:
@@ -1158,7 +1189,7 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
                         a["t"][f, b] = m[:3, 3] * UNIT_SCALE
                     world[b] = pw @ m
 
-    ik = build_ik_table(bone_names, parents, bone_bind_global, inv_bind, bind_local, front, rig, verbose)
+    ik = ik_hint
 
     return {
         "verts": out_verts, "tris": out_tris, "nbones": nb, "parents": parents, "ik": ik,
