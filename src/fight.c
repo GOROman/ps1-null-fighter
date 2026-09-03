@@ -201,6 +201,11 @@ static void start_attack(Fighter *f, int attack) {
 	f->hit_done = 0;
 	set_anim(f, attack == FA_PUNCH ? f->anim_punch : attack == FA_KICK ? f->anim_kick : f->anim_special);
 	f->pose.speed = attack == FA_SPECIAL ? 320 : attack == FA_PUNCH ? 768 : 512;   /* punches fastest */
+	if (attack == FA_KICK && f->combo_i > 0) {
+		/* chained kick: skip the wind-up */
+		const ModelAnim *a = &f->model->anims[f->pose.anim];
+		f->pose.frame = (a->nframes * 20) / 100;
+	}
 }
 
 static int reach_of(int attack) {

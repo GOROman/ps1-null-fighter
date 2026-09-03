@@ -1129,22 +1129,57 @@ def convert(scene, verbose=True, strip_root_motion=True, target_tris=0, reatlas=
     # the hip's forward direction at frame 0 and undo that yaw on the root
     # bone so every clip faces the same way (the runtime places the character
     # by its own yaw).
-    if align_clips and ik_hint is not None and ik_hint.get("hip", -1) >= 0:
-        hip = ik_hint["hip"]
-        front_ps1 = C_FBX_TO_PS1 @ np.array(front, dtype=np.float64)
-        hip_bind_rot = to_ps1_matrix(bone_bind_global[hip])[:3, :3]
-        fwd_local = np.linalg.inv(hip_bind_rot) @ front_ps1
-        for a in anims:
-            # attacks are aligned at their impact frame (40%), other clips at the start
-            name = a["name"].lower()
-            fr = int((a["nframes"] - 1) * 0.4) if any(k in name for k in ("kick", "box", "punch", "shoot")) else 0
+    if align_clips and ik_hint is not None and ik_hint["chains"][0] and ik_hint["chains"][1]:
+        # facing = the line between the two shoulders (upper arm roots), which
+        # stays level whatever the legs / hips do
+        sl, sr = ik_hint["chains"][0]["upper"], ik_hint["chains"][1]["upper"]
+        ta = trans_animated_guess = None
+
+        def world_positions(rots, transs):
             world = [None] * nb
             for b in range(nb):
-                m = quat_to_mat3(a["q"][fr, b])
+                m = np.eye(4)
+                m[:3, :3] = rots[b]
+                m[:3, 3] = transs[b]
                 p = parents[b]
                 world[b] = m if p < 0 else world[p] @ m
-            fwd = world[hip] @ fwd_local
-            yaw = math.atan2(fwd[0], fwd[2]) - math.atan2(front_ps1[0], front_ps1[2])
+            return [w[:3, 3] for w in world]
+
+        bind_pos = world_positions([bind_local[b][:3, :3] for b in range(nb)],
+                                   [bind_local[b][:3, 3] * UNIT_SCALE for b in range(nb)])
+        lat0 = bind_pos[sl] - bind_pos[sr]
+        yaw0 = math.atan2(lat0[2], lat0[0])
+        front_ps1 = C_FBX_TO_PS1 @ np.array(front, dtype=np.float64)
+        yaw_front = math.atan2(front_ps1[0], front_ps1[2])
+        hip_b = ik_hint["hip"]
+        limb_ends = []
+        for c in ik_hint["chains"]:
+            if c:
+                limb_ends.append(c["end"] if c["end"] >= 0 else c["lower"])
+        for a in anims:
+            name = a["name"].lower()
+            attack = any(k in name for k in ("kick", "box", "punch"))
+            if attack and limb_ends:
+                # the strike = the hand / foot moving fastest (horizontally)
+                # between 15% and 80% of the clip; its velocity points at the
+                # opponent, whatever the body does
+                pos_f = [world_positions([quat_to_mat3(a["q"][fr, b]) for b in range(nb)],
+                                         [a["t"][fr, b] for b in range(nb)]) for fr in range(a["nframes"])]
+                best, best_d, best_f = None, -1.0, 0
+                for fr in range(max(int(a["nframes"] * 0.15), 1), max(int(a["nframes"] * 0.8), 2)):
+                    for e in limb_ends:
+                        v = (pos_f[fr][e] - pos_f[fr - 1][e]) - (pos_f[fr][hip_b] - pos_f[fr - 1][hip_b])
+                        dd = math.hypot(v[0], v[2])
+                        if dd > best_d:
+                            best_d, best, best_f = dd, v, fr
+                yaw = math.atan2(best[0], best[2]) - yaw_front
+                if verbose:
+                    print("anim %-16s impact frame %d/%d" % (a["name"], best_f, a["nframes"]))
+            else:
+                pos = world_positions([quat_to_mat3(a["q"][0, b]) for b in range(nb)],
+                                      [a["t"][0, b] for b in range(nb)])
+                lat = pos[sl] - pos[sr]
+                yaw = math.atan2(lat[2], lat[0]) - yaw0
             yaw = (yaw + math.pi) % (2 * math.pi) - math.pi          # wrap to -180..180
             if abs(math.degrees(yaw)) < 5:
                 continue
