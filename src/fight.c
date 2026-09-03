@@ -13,7 +13,7 @@
 
 #define ROUND_FRAMES   (60 * 60)      /* 60 s */
 #define START_X        1500           /* fighters start at +-START_X */
-#define REACH_PUNCH    1250
+#define REACH_PUNCH    1450
 #define REACH_KICK     1450
 #define REACH_SPECIAL  1650
 #define APPROACH_STOP  1200
@@ -223,7 +223,10 @@ static void fighter_ai(Fight *fg, int i) {
 		} else if (o->state != FS_KO) {
 			uint32_t r = rnd(fg) % 100;
 			if (r < 45) {
-				const int *c = COMBOS[rnd(fg) % NCOMBOS];
+				uint32_t cr = rnd(fg) % 100;
+				const int *c = cr < 30 ? COMBOS[2]                    /* punch-punch-kick 30% */
+				             : cr < 50 ? COMBOS[0]                    /* single punch */
+				             : COMBOS[rnd(fg) % NCOMBOS];
 				f->combo_len = 0;
 				for (int k = 0; k < 4 && c[k] >= 0; k++) f->combo[f->combo_len++] = c[k];
 				f->combo_i = 0;
