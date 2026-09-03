@@ -23,6 +23,7 @@ typedef struct {
 	int state, attack, hit_done, cooldown;
 	int combo[4], combo_len, combo_i;   /* queued attack chain (FA_*) */
 	int kb;                    /* knock back velocity (units per frame, signed), decays */
+	int last_backstep;         /* the previous idle decision was a backstep: do not chain them */
 	int hp_disp;               /* displayed hp (drains slowly towards hp) */
 	int anim_idle, anim_run, anim_punch, anim_kick, anim_special, anim_hit, anim_ko, anim_win, anim_jump;
 } Fighter;

@@ -227,11 +227,14 @@ static void fighter_ai(Fight *fg, int i) {
 				f->combo_len = 0;
 				for (int k = 0; k < 4 && c[k] >= 0; k++) f->combo[f->combo_len++] = c[k];
 				f->combo_i = 0;
+				f->last_backstep = 0;
 				start_attack(f, f->combo[0]);
-			} else if (r < 62 || (r < 75 && d < MIN_DIST + 250)) {
+			} else if (!f->last_backstep && (r < 62 || (r < 75 && d < MIN_DIST + 250))) {
 				f->state = FS_BACKSTEP;                    /* hop back to reset the spacing */
+				f->last_backstep = 1;
 				set_anim(f, f->anim_jump);
 			} else {
+				f->last_backstep = 0;
 				f->cooldown = 4 + (rnd(fg) % 16);
 			}
 		}
@@ -240,9 +243,9 @@ static void fighter_ai(Fight *fg, int i) {
 		/* move back during the first 60% of the hop, then land */
 		/* the jump clip contains several hops: use only the first one */
 		int pct = a->nframes > 1 ? (f->pose.frame * 100) / (a->nframes - 1) : 100;
-		if (pct < 35 && d < APPROACH_STOP + 900)
+		if (pct < 24 && d < APPROACH_STOP + 900)
 			f->x -= dir * BACKSTEP_SPEED * g_step;      /* away from the opponent */
-		if (f->pose.loops > 0 || pct >= 45) {
+		if (f->pose.loops > 0 || pct >= 30) {
 			f->state = FS_IDLE;
 			f->cooldown = 6 + (rnd(fg) % 20);
 			set_anim(f, f->anim_idle);
