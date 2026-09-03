@@ -21,6 +21,7 @@ typedef struct {
 	int x, z, yaw;             /* world placement (PS1 units; yaw 4096 = 360 deg) */
 	int hp;                    /* 0..100 */
 	int state, attack, hit_done, cooldown;
+	int combo[4], combo_len, combo_i;   /* queued attack chain (FA_*) */
 	int hp_disp;               /* displayed hp (drains slowly towards hp) */
 	int anim_idle, anim_run, anim_punch, anim_kick, anim_special, anim_hit, anim_ko, anim_win, anim_jump;
 } Fighter;

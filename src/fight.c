@@ -179,6 +179,26 @@ static void start_round(Fight *fg) {
 }
 
 /* ---- AI ------------------------------------------------------------------ */
+/* attack chains: punch-punch-kick and friends */
+static const int COMBOS[][4] = {
+	{ FA_PUNCH, -1, -1, -1 },
+	{ FA_KICK, -1, -1, -1 },
+	{ FA_PUNCH, FA_PUNCH, FA_KICK, -1 },
+	{ FA_PUNCH, FA_KICK, -1, -1 },
+	{ FA_KICK, FA_PUNCH, -1, -1 },
+	{ FA_PUNCH, FA_PUNCH, FA_PUNCH, FA_SPECIAL },
+	{ FA_SPECIAL, -1, -1, -1 },
+	{ FA_KICK, FA_KICK, -1, -1 },
+};
+#define NCOMBOS ((int)(sizeof(COMBOS) / sizeof(COMBOS[0])))
+
+static void start_attack(Fighter *f, int attack) {
+	f->attack = attack;
+	f->state = FS_ATTACK;
+	f->hit_done = 0;
+	set_anim(f, attack == FA_PUNCH ? f->anim_punch : attack == FA_KICK ? f->anim_kick : f->anim_special);
+}
+
 static int reach_of(int attack) {
 	return attack == FA_PUNCH ? REACH_PUNCH : attack == FA_KICK ? REACH_KICK : REACH_SPECIAL;
 }
@@ -201,10 +221,11 @@ static void fighter_ai(Fight *fg, int i) {
 		} else if (o->state != FS_KO) {
 			uint32_t r = rnd(fg) % 100;
 			if (r < 45) {
-				f->attack = r < 20 ? FA_PUNCH : r < 38 ? FA_KICK : FA_SPECIAL;
-				f->state = FS_ATTACK;
-				f->hit_done = 0;
-				set_anim(f, f->attack == FA_PUNCH ? f->anim_punch : f->attack == FA_KICK ? f->anim_kick : f->anim_special);
+				const int *c = COMBOS[rnd(fg) % NCOMBOS];
+				f->combo_len = 0;
+				for (int k = 0; k < 4 && c[k] >= 0; k++) f->combo[f->combo_len++] = c[k];
+				f->combo_i = 0;
+				start_attack(f, f->combo[0]);
 			} else if (r < 62 || (r < 75 && d < MIN_DIST + 250)) {
 				f->state = FS_BACKSTEP;                    /* hop back to reset the spacing */
 				set_anim(f, f->anim_jump);
@@ -261,10 +282,16 @@ static void fighter_ai(Fight *fg, int i) {
 				}
 			}
 		}
-		if (f->pose.loops > 0) {
-			f->state = FS_IDLE;
-			f->cooldown = 10 + (rnd(fg) % 25);
-			set_anim(f, f->anim_idle);
+		/* chain the next attack of the combo a little before the clip ends */
+		if (f->pose.loops > 0 || (pct >= 85 && f->combo_i + 1 < f->combo_len)) {
+			if (f->combo_i + 1 < f->combo_len && o->state != FS_KO) {
+				f->combo_i++;
+				start_attack(f, f->combo[f->combo_i]);
+			} else {
+				f->state = FS_IDLE;
+				f->cooldown = 10 + (rnd(fg) % 25);
+				set_anim(f, f->anim_idle);
+			}
 		}
 		break;
 	}
