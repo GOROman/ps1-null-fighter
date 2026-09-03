@@ -59,7 +59,7 @@ static int  db_active = 0;
 static char *db_nextpri;
 
 extern const uint32_t schoolgirl_bin[], schoolgirl_tim[], schoolgirl_face_tim[], schoolgirl_skirt_tim[];
-extern const uint32_t character_bin[],  character_tim[];
+extern const uint32_t character_bin[],  character_tim[], character_lo_bin[];
 extern const uint32_t schoolgirl2_bin[], schoolgirl2_tim[];
 extern const uint32_t monkey_tim[];
 
@@ -449,8 +449,8 @@ int main(void) {
 	/* fight: the blonde against herself (one model, one texture, no lighting
 	 * = the cheapest path); player 2 is tinted so they can be told apart */
 	static const uint32_t *const fight_tims[MAX_TEX] = { character_tim, 0, 0 };
-	model_open(&fmodel[0], character_bin);
-	model_open(&fmodel[1], character_bin);
+	model_open(&fmodel[0], character_lo_bin);           /* 600-triangle version, same texture */
+	model_open(&fmodel[1], character_lo_bin);
 	renderer_init(&frender[0], fight_tims);
 	frender[1] = frender[0];
 	frender[0].shading = frender[1].shading = SHADE_NONE;
@@ -562,6 +562,12 @@ int main(void) {
 			db_nextpri = prof_draw(db[db_active].ot, db_nextpri);
 			FntPrint(fnt_fps, "FPS %2d\n", fps);
 			FntFlush(fnt_fps);
+			FntPrint(fnt_dbg, "CPU%d V%d P%d M%d TRI%d+%d\n",
+			         prof_shown[PROF_INPUT] + prof_shown[PROF_POSE] + prof_shown[PROF_VERTS] +
+			         prof_shown[PROF_PRIMS] + prof_shown[PROF_MISC],
+			         prof_shown[PROF_VERTS], prof_shown[PROF_PRIMS], prof_shown[PROF_MISC],
+			         frender[0].tris_drawn, frender[1].tris_drawn);
+			FntFlush(fnt_dbg);
 			prof_mark(PROF_MISC);
 			display();
 			frames++;
