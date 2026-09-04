@@ -1,0 +1,70 @@
+name: "✨ 要望・新機能リクエスト"
+description: "新しい技、キャラ、モード、UIの改善など、欲しい機能を教えてください"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        御意見有用！🎮 要望をお寄せいただきありがとうございます。
+        できるだけ詳しく書いていただけると、AI が実装しやすくなります。
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: カテゴリ
+      description: この要望はどの分野に関係しますか？
+      options:
+        - 新しい技・コンボ
+        - キャラクター・モデル
+        - ゲームバランス
+        - 操作・UI
+        - モード（1P/VS/CPU）
+        - ビューア
+        - サウンド・演出
+        - その他
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 要望の内容
+      description: 実現したいことを具体的に書いてください
+      placeholder: |
+        例：
+        - 「前+P+K でサマーソルトキックが出るようにしたい」
+        - 「CPUの難易度を選べるようにしてほしい」
+        - 「ヒット時のエフェクトをもっと派手にしたい」
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: 理由・背景
+      description: なぜこの機能が欲しいですか？どんな場面で役立ちますか？
+      placeholder: |
+        例：
+        - 「中段技が少なく、ガードを崩しにくいため」
+        - 「友達と遊ぶとき、初心者が勝てなくてつまらないから」
+
+  - type: textarea
+    id: reference
+    attributes:
+      label: 参考（任意）
+      description: 参考になる他のゲームの技、動画、画像などがあれば
+      placeholder: "バーチャファイターのサラのサマーソルトキックのような感じ"
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 関係するモード
+      description: この要望が関係するモードを選んでください（複数可）
+      multiple: true
+      options:
+        - 1P MODE
+        - VS MODE
+        - CPU MODE
+        - ビューア
+        - タイトル画面
+        - 全般
