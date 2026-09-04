@@ -1,0 +1,98 @@
+name: "御意見フォーム（バグ報告）"
+description: "動作がおかしい、クラッシュする、表示が変など、問題を報告してください"
+labels: ["bug", "御意見"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 御意見有用！
+        バグ報告ありがとうございます。
+        再現できるように、できるだけ詳しく状況を教えてください。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 何が起きましたか？
+      description: バグの症状を具体的に書いてください
+      placeholder: |
+        例：
+        - 「VS MODE で 2P がガードできない」
+        - 「スピニングバードキックの途中でフリーズする」
+        - 「ライフゲージが表示されない」
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待した動作
+      description: 本来どう動くべきだと思いますか？
+      placeholder: "□ボタンを押している間はガードできるはず"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 再現手順
+      description: バグを再現する手順を教えてください
+      placeholder: |
+        1. VS MODE を選択
+        2. 2P 側で □ を押しながら待機
+        3. 1P が攻撃する
+        4. 2P がガードできずにダメージを受ける
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 発生したモード
+      description: バグが起きたモードを選んでください
+      options:
+        - 1P MODE
+        - VS MODE
+        - CPU MODE
+        - ビューア
+        - タイトル画面
+        - 全モード共通
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: 発生頻度
+      description: どのくらいの頻度で起きますか？
+      options:
+        - 毎回起きる
+        - よく起きる（50%以上）
+        - たまに起きる
+        - 一度だけ起きた
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 環境（任意）
+      description: エミュレータ名やバージョン、実機の場合はその旨を
+      placeholder: |
+        例：
+        - DuckStation 0.1-xxxx
+        - 実機（SCPH-7000）
+        - Mednafen
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: スクリーンショット・動画（任意）
+      description: 問題の様子がわかる画像や動画があれば添付してください
+      placeholder: "ここにドラッグ＆ドロップ、またはリンクを貼ってください"
+
+  - type: input
+    id: version
+    attributes:
+      label: バージョン/コミット（任意）
+      description: リリース版のバージョンか、ビルドしたコミットハッシュ
+      placeholder: "v0.1.0 または abc1234"

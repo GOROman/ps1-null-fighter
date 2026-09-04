@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 その他のお問い合わせ
+    url: https://github.com/GOROman/ps1-null-fighter/discussions
+    about: 要望でもバグでもない質問や雑談は Discussions へ（開設されている場合）
