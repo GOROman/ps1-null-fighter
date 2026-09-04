@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" fill="#0a0a0a"/>
+  <polygon points="0,40 64,12 64,27 0,55" fill="#c8102e"/>
+  <rect x="1.5" y="1.5" width="61" height="61" fill="none" stroke="#e2b84a" stroke-width="3"/>
+  <text x="32" y="52" text-anchor="middle" font-family="Shippori Mincho B1, Hiragino Mincho ProN, Yu Mincho, serif" font-weight="800" font-size="46" fill="#000">御</text>
+  <text x="30" y="50" text-anchor="middle" font-family="Shippori Mincho B1, Hiragino Mincho ProN, Yu Mincho, serif" font-weight="800" font-size="46" fill="#ffe88c">御</text>
+</svg>
