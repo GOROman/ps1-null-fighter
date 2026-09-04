@@ -578,8 +578,16 @@ int main(void) {
 			screen = SCR_FIGHT;
 			fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
 			fight_set_players(&fight, game_mode != MODE_CPU, game_mode == MODE_VS);
+			if (game_mode == MODE_TRAINING)
+				fight_set_training(&fight, 1);
 		}
-		if (screen == SCR_FIGHT && fight.match_over && game_mode != MODE_CPU) {
+		/* training mode: R1 resets to initial state (on press, not hold) */
+		if (screen == SCR_FIGHT && game_mode == MODE_TRAINING && (pressed & PAD_R1)) {
+			fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
+			fight_set_players(&fight, 1, 0);
+			fight_set_training(&fight, 1);
+		}
+		if (screen == SCR_FIGHT && fight.match_over && game_mode != MODE_CPU && game_mode != MODE_TRAINING) {
 			screen = SCR_TITLE;                                  /* match done: back to the menu */
 			title_init(&title);
 			fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
@@ -597,7 +605,9 @@ int main(void) {
 				uint16_t pressed2 = (~btn2) & prev_btn2;
 				prev_btn2 = btn2;
 				if (!(held & PAD_SELECT)) fight_input(&fight, 0, held, pressed);
-				fight_input(&fight, 1, ~btn2, pressed2);
+				/* training mode: P2 receives no input (static dummy) */
+				if (game_mode != MODE_TRAINING)
+					fight_input(&fight, 1, ~btn2, pressed2);
 			}
 			prof_mark(PROF_INPUT);
 			fight_update(&fight, &cam, fps >= 45 ? 60 : 30);

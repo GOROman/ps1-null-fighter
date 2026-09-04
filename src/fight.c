@@ -269,6 +269,18 @@ void fight_init(Fight *fg, const Model *m0, Renderer *r0, const Model *m1, Rende
 	fg->advice_t = 0;
 	fg->advice_idx = 0;
 	fg->advice_cd = ADVICE_CD_MIN + (fg->rng % (ADVICE_CD_MAX - ADVICE_CD_MIN));
+	fg->training = 0;
+	fg->last_dmg = 0;
+}
+
+void fight_set_training(Fight *fg, int training) {
+	fg->training = training;
+	if (training) {
+		fg->phase = FP_FIGHTING;
+		fg->phase_t = 0;
+		fg->timer = 0;
+		fg->f[1].human = 0;
+	}
 }
 
 void fight_set_players(Fight *fg, int p0_human, int p1_human) {
@@ -588,14 +600,22 @@ static void fighter_ai(Fight *fg, int i) {
 	if (f->state == FS_ATTACK) f->yaw = (base_yaw + f->yaw_corr) & 4095;
 	else f->yaw_corr = 0;
 	const ModelAnim *a = &f->model->anims[f->pose.anim];
-	if (f->special_cd > 0) f->special_cd -= g_step;
-	if (f->hadouken_cd > 0) f->hadouken_cd -= g_step;
+	/* training mode: P1 has no cooldowns */
+	if (fg->training && i == 0) {
+		f->special_cd = 0;
+		f->hadouken_cd = 0;
+	} else {
+		if (f->special_cd > 0) f->special_cd -= g_step;
+		if (f->hadouken_cd > 0) f->hadouken_cd -= g_step;
+	}
 	if (f->human) record_dpad(f, f->in_held);  /* track d-pad for command inputs */
 
 	switch (f->state) {
 	case FS_IDLE: {
 		if (f->cooldown > 0) { f->cooldown--; break; }
 		if (o->state == FS_KO) break;
+		/* training mode: P2 is a static dummy, no AI, no input */
+		if (fg->training && i == 1) break;
 		if (f->human) {
 			if (!player_act(fg, i, dir)) player_walk(fg, i, dir, d);
 			break;
@@ -834,6 +854,11 @@ static void fighter_ai(Fight *fg, int i) {
 				int counter = o->state == FS_ATTACK;             /* hit them during their swing */
 				int dmg = dogeza_death ? 999 : guarded ? (mv->dmg + 3) / 4 : counter ? (mv->dmg * 3) / 2 : mv->dmg;
 				if (guarded && o->hp - dmg <= 0) dmg = o->hp - 1;   /* no chip KO */
+				/* training mode: record damage, prevent KO */
+				if (fg->training && i == 0) {
+					fg->last_dmg = dmg > 999 ? 999 : dmg;
+					if (o->hp - dmg < 1) dmg = o->hp - 1;
+				}
 				o->hp -= dmg;
 				if (counter && !guarded) { fg->counter_t = 50; fg->counter_side = 1 - i; }
 				/* hit effect where the strike lands: the opponent's body surface
@@ -851,7 +876,7 @@ static void fighter_ai(Fight *fg, int i) {
 					o->kb = dir * (mv->kb / 3);
 					o->guard_t += 6;
 					fg->hitstop = 2;
-				} else if (o->hp <= 0) {
+				} else if (o->hp <= 0 && !fg->training) {
 					o->hp = 0;
 					o->state = FS_KO;
 					set_anim(o, o->anim_ko);
@@ -947,9 +972,9 @@ static void fighter_ai(Fight *fg, int i) {
 		break;
 	}
 	}
-	/* ring out: knocked over the stage edge while flying */
-	if ((f->x < -STAGE_EDGE || f->x > STAGE_EDGE) && f->kb && (f->state == FS_HIT || f->state == FS_DOWN) &&
-	    fg->phase == FP_FIGHTING) {
+	/* ring out: knocked over the stage edge while flying (disabled in training) */
+	if (!fg->training && (f->x < -STAGE_EDGE || f->x > STAGE_EDGE) && f->kb &&
+	    (f->state == FS_HIT || f->state == FS_DOWN) && fg->phase == FP_FIGHTING) {
 		f->state = FS_KO;
 		f->hp = 0;
 		fg->ringout = 1;
@@ -1058,24 +1083,26 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 	case FP_FIGHTING:
 		fighter_ai(fg, 0);
 		fighter_ai(fg, 1);
-		fg->timer -= g_step;
-		if (fg->timer < 0) fg->timer = 0;
-		for (int i = 0; i < 2; i++) {
-			if (fg->f[i].state == FS_KO) {
-				fg->winner = 1 - i;
+		if (!fg->training) {
+			fg->timer -= g_step;
+			if (fg->timer < 0) fg->timer = 0;
+			for (int i = 0; i < 2; i++) {
+				if (fg->f[i].state == FS_KO) {
+					fg->winner = 1 - i;
+					fg->phase = FP_KO;
+					fg->phase_t = 0;
+				}
+			}
+			if (fg->phase == FP_FIGHTING && fg->timer == 0) {
+				fg->winner = fg->f[0].hp >= fg->f[1].hp ? 0 : 1;
 				fg->phase = FP_KO;
 				fg->phase_t = 0;
 			}
-		}
-		if (fg->phase == FP_FIGHTING && fg->timer == 0) {
-			fg->winner = fg->f[0].hp >= fg->f[1].hp ? 0 : 1;
-			fg->phase = FP_KO;
-			fg->phase_t = 0;
-		}
-		if (fg->phase == FP_KO) {
-			Fighter *w = &fg->f[fg->winner];
-			if (w->state != FS_KO) { w->state = FS_WIN; set_anim(w, w->anim_win); }
-			fg->wins[fg->winner]++;
+			if (fg->phase == FP_KO) {
+				Fighter *w = &fg->f[fg->winner];
+				if (w->state != FS_KO) { w->state = FS_WIN; set_anim(w, w->anim_win); }
+				fg->wins[fg->winner]++;
+			}
 		}
 		break;
 	case FP_KO:
@@ -1138,8 +1165,8 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 	if (fg->hitstop > 0) fg->hitstop -= g_step;
 	if (fg->name_t > 0) fg->name_t -= g_step;
 	if (fg->counter_t > 0) fg->counter_t -= g_step;
-	/* advice popup: random timing during fights */
-	if (fg->phase == FP_FIGHTING) {
+	/* advice popup: random timing during fights (disabled in training) */
+	if (fg->phase == FP_FIGHTING && !fg->training) {
 		if (fg->advice_t > 0) {
 			fg->advice_t -= g_step;
 		} else if (fg->advice_cd > 0) {
@@ -1178,6 +1205,11 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 			int guarded = o->state == FS_GUARD;
 			int dmg = guarded ? (p->dmg + 3) / 4 : p->dmg;
 			if (guarded && o->hp - dmg <= 0) dmg = o->hp - 1;  /* no chip KO */
+			/* training mode: record damage, prevent KO */
+			if (fg->training && p->owner == 0) {
+				fg->last_dmg = dmg > 999 ? 999 : dmg;
+				if (o->hp - dmg < 1) dmg = o->hp - 1;
+			}
 			o->hp -= dmg;
 
 			/* hit effect */
@@ -1197,7 +1229,7 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 				o->kb = dir * (HADOUKEN_KB / 3);
 				o->guard_t += 4;
 				fg->hitstop = 2;
-			} else if (o->hp <= 0) {
+			} else if (o->hp <= 0 && !fg->training) {
 				o->hp = 0;
 				o->state = FS_KO;
 				set_anim(o, o->anim_ko);
@@ -1240,6 +1272,11 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 			if (dx < bubble_range && dx > 200) {
 				f->dogeza_hit = 1;
 				int dmg = DOGEZA_DMG;
+				/* training mode: record damage, prevent KO */
+				if (fg->training && fg->dogeza_bubble_side == 0) {
+					fg->last_dmg = dmg > 999 ? 999 : dmg;
+					if (o->hp - dmg < 1) dmg = o->hp - 1;
+				}
 				o->hp -= dmg;
 				fg->shake = 20;
 				fg->hitstop = 12;
@@ -1257,7 +1294,7 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 					break;
 				}
 
-				if (o->hp <= 0) {
+				if (o->hp <= 0 && !fg->training) {
 					o->hp = 0;
 					o->state = FS_KO;
 					set_anim(o, o->anim_ko);
@@ -1365,14 +1402,31 @@ static char *draw_projectiles(Fight *fg, const Camera *cam, uint32_t *ot, char *
 
 static char *draw_hud(Fight *fg, uint32_t *ot, char *nextpri) {
 	TILE *t = (TILE *)nextpri;
-	/* timer: drawn first in bucket 0 (= on top), on a dark box */
-	char buf[4];
-	int secs = (fg->timer + 59) / 60;
-	buf[0] = '0' + (secs / 10) % 10; buf[1] = '0' + secs % 10; buf[2] = 0;
-	nextpri = fight_text(buf, CENTERX, 8, 3, 255, 255, 255, ot, nextpri);
-	t = (TILE *)nextpri;
-	setTile(t); setRGB0(t, 20, 20, 30); setXY0(t, CENTERX - 20, 5); setWH(t, 40, 28); addPrim(ot, t); t++;
-	nextpri = (char *)t;
+	if (fg->training) {
+		/* training mode: "TRAINING" at top center, DMG display at bottom left */
+		nextpri = fight_text("TRAINING", CENTERX, 8, 2, 80, 255, 120, ot, nextpri);
+		t = (TILE *)nextpri;
+		setTile(t); setRGB0(t, 20, 20, 30); setXY0(t, CENTERX - 50, 5); setWH(t, 100, 20); addPrim(ot, t); t++;
+		nextpri = (char *)t;
+		/* DMG display: "DMG 000" format */
+		char dmg_buf[8];
+		int d = fg->last_dmg;
+		dmg_buf[0] = 'D'; dmg_buf[1] = 'M'; dmg_buf[2] = 'G'; dmg_buf[3] = ' ';
+		dmg_buf[4] = '0' + (d / 100) % 10;
+		dmg_buf[5] = '0' + (d / 10) % 10;
+		dmg_buf[6] = '0' + d % 10;
+		dmg_buf[7] = 0;
+		nextpri = fight_text(dmg_buf, 50, SCREEN_YRES - 20, 2, 255, 200, 100, ot, nextpri);
+	} else {
+		/* timer: drawn first in bucket 0 (= on top), on a dark box */
+		char buf[4];
+		int secs = (fg->timer + 59) / 60;
+		buf[0] = '0' + (secs / 10) % 10; buf[1] = '0' + secs % 10; buf[2] = 0;
+		nextpri = fight_text(buf, CENTERX, 8, 3, 255, 255, 255, ot, nextpri);
+		t = (TILE *)nextpri;
+		setTile(t); setRGB0(t, 20, 20, 30); setXY0(t, CENTERX - 20, 5); setWH(t, 40, 28); addPrim(ot, t); t++;
+		nextpri = (char *)t;
+	}
 
 	t = (TILE *)nextpri;
 	/* life bars: 130 px wide, 12 px thick; yellow = remaining, red = lost.
@@ -1399,31 +1453,33 @@ static char *draw_hud(Fight *fg, uint32_t *ot, char *nextpri) {
 		}
 	}
 	nextpri = (char *)t;
-	/* announcements */
-	switch (fg->phase) {
-	case FP_ROUND: {
-		char r[8] = "ROUND 1";
-		r[6] = '0' + fg->round;
-		if (fg->phase_t > 10) nextpri = fight_text(r, CENTERX, 90, 4, 255, 220, 60, ot, nextpri);
-		break;
-	}
-	case FP_FIGHT:
-		nextpri = fight_text("FIGHT!", CENTERX, 88, 5, 255, 80, 60, ot, nextpri);
-		break;
-	case FP_KO:
-		if (fg->phase_t > 5)
-			nextpri = fight_text(fg->ringout ? "RING OUT" : fg->timer == 0 ? "TIME UP" : "K.O.", CENTERX, 88,
-			                   fg->ringout ? 4 : 5, 255, 60, 60, ot, nextpri);
-		break;
-	case FP_END: {
-		const char *s = fg->winner == 0 ? "P1 WIN" : "P2 WIN";
-		nextpri = fight_text(s, CENTERX, 90, 4, 255, 220, 60, ot, nextpri);
-		if (fg->winner >= 0 && fg->f[fg->winner].hp == 100)
-			nextpri = fight_text("PERFECT", CENTERX, 66, 2, 255, 255, 255, ot, nextpri);
-		break;
-	}
-	default:
-		break;
+	/* announcements (skipped in training mode) */
+	if (!fg->training) {
+		switch (fg->phase) {
+		case FP_ROUND: {
+			char r[8] = "ROUND 1";
+			r[6] = '0' + fg->round;
+			if (fg->phase_t > 10) nextpri = fight_text(r, CENTERX, 90, 4, 255, 220, 60, ot, nextpri);
+			break;
+		}
+		case FP_FIGHT:
+			nextpri = fight_text("FIGHT!", CENTERX, 88, 5, 255, 80, 60, ot, nextpri);
+			break;
+		case FP_KO:
+			if (fg->phase_t > 5)
+				nextpri = fight_text(fg->ringout ? "RING OUT" : fg->timer == 0 ? "TIME UP" : "K.O.", CENTERX, 88,
+				                   fg->ringout ? 4 : 5, 255, 60, 60, ot, nextpri);
+			break;
+		case FP_END: {
+			const char *s = fg->winner == 0 ? "P1 WIN" : "P2 WIN";
+			nextpri = fight_text(s, CENTERX, 90, 4, 255, 220, 60, ot, nextpri);
+			if (fg->winner >= 0 && fg->f[fg->winner].hp == 100)
+				nextpri = fight_text("PERFECT", CENTERX, 66, 2, 255, 255, 255, ot, nextpri);
+			break;
+		}
+		default:
+			break;
+		}
 	}
 	/* hit counter under the life bar of whoever is being juggled */
 	for (int i = 0; i < 2; i++) {
