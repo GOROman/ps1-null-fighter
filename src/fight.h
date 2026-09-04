@@ -68,6 +68,9 @@ typedef struct {
 	int name_t, name_move, name_side;   /* move name popup */
 	int demo;                           /* title screen backdrop: no HUD */
 	int match_over;                     /* set when a best-of-3 match has ended */
+	int advice_t;                       /* frames left to show current advice */
+	int advice_idx;                     /* index of current advice phrase */
+	int advice_cd;                      /* frames until next advice appears */
 } Fight;
 
 void fight_init(Fight *fg, const Model *m0, Renderer *r0, const Model *m1, Renderer *r1);

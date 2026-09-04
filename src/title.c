@@ -13,9 +13,38 @@ static const char *const MENU[NUM_MODES] = { "1P MODE", "VS MODE", "CPU MODE" };
 static char build_banner[64];
 static int build_banner_init = 0;
 
+/* advice phrases shared with fight.c */
+static const char *const TITLE_ADVICE[] = {
+	"FIST SPEAKS TRUTH",
+	"HONOR YOUR FOES",
+	"STYLE IS VICTORY",
+	"BREATHE. STRIKE.",
+	"FLOW LIKE WATER",
+	"READ THE MOMENT",
+	"NO WASTED MOTION",
+	"PATIENCE WINS",
+	"RESPECT THE RING",
+	"COURAGE IS CALM",
+	"FIGHT WITH GRACE",
+	"ONE CHANCE. SEIZE.",
+};
+#define NUM_TITLE_ADVICE ((int)(sizeof(TITLE_ADVICE) / sizeof(TITLE_ADVICE[0])))
+#define TITLE_ADVICE_SHOW  180
+#define TITLE_ADVICE_CD_MIN 240
+#define TITLE_ADVICE_CD_MAX 480
+
+static uint32_t title_rnd(Title *tt) {
+	tt->rng = tt->rng * 1664525u + 1013904223u;
+	return tt->rng >> 8;
+}
+
 void title_init(Title *tt) {
 	tt->sel = 0;
 	tt->t = 0;
+	tt->rng = 0xDEADBEEF;
+	tt->advice_t = 0;
+	tt->advice_idx = 0;
+	tt->advice_cd = TITLE_ADVICE_CD_MIN + (tt->rng % (TITLE_ADVICE_CD_MAX - TITLE_ADVICE_CD_MIN));
 	if (!build_banner_init) {
 		/* format: "V0.1.0 ABC1234 2026.09.04 10.15" - version commit date time */
 		char *p = build_banner;
@@ -53,6 +82,16 @@ void title_init(Title *tt) {
 
 int title_update(Title *tt, uint16_t pressed) {
 	tt->t++;
+	/* advice popup timing */
+	if (tt->advice_t > 0) {
+		tt->advice_t--;
+	} else if (tt->advice_cd > 0) {
+		tt->advice_cd--;
+	} else {
+		tt->advice_idx = title_rnd(tt) % NUM_TITLE_ADVICE;
+		tt->advice_t = TITLE_ADVICE_SHOW;
+		tt->advice_cd = TITLE_ADVICE_CD_MIN + (title_rnd(tt) % (TITLE_ADVICE_CD_MAX - TITLE_ADVICE_CD_MIN));
+	}
 	if (pressed & PAD_UP)   tt->sel = (tt->sel + NUM_MODES - 1) % NUM_MODES;
 	if (pressed & PAD_DOWN) tt->sel = (tt->sel + 1) % NUM_MODES;
 	if (pressed & (PAD_START | PAD_CROSS | PAD_CIRCLE | PAD_TRIANGLE))
@@ -80,6 +119,17 @@ char *title_draw(const Title *tt, uint32_t *ot, char *nextpri) {
 			setTile(t); setRGB0(t, c, c, 60); setXY0(t, CENTERX + w / 2 + 10, y + 4); setWH(t, 6, 6); addPrim(ot, t); t++;
 			nextpri = (char *)t;
 		}
+	}
+	/* advice popup ("goiken") */
+	if (tt->advice_t > 0) {
+		int fade = tt->advice_t > 150 ? (180 - tt->advice_t) * 255 / 30 :
+		           tt->advice_t < 30 ? tt->advice_t * 255 / 30 : 255;
+		if (fade > 255) fade = 255;
+		if (fade < 0) fade = 0;
+		int r = (180 * fade) / 255;
+		int g = (220 * fade) / 255;
+		int b = (255 * fade) / 255;
+		nextpri = fight_text(TITLE_ADVICE[tt->advice_idx], CENTERX, 108, 1, r, g, b, ot, nextpri);
 	}
 	if (pulse || tt->t < 60)
 		nextpri = fight_text("PUSH START BUTTON", CENTERX, 206, 1, 230, 230, 230, ot, nextpri);
