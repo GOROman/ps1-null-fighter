@@ -24,6 +24,15 @@
 #define STAGE_EDGE     8400           /* ring out boundary (2x original 4200) */
 #define STAGE_CLAMP    8800           /* hard clamp (2x original 4400) */
 
+/* hadouken (projectile) balance - conservative to fit VF-style close combat */
+#define HADOUKEN_SPEED    18          /* slow projectile (px/frame) */
+#define HADOUKEN_RANGE    2400        /* short range: disappears after this distance */
+#define HADOUKEN_CD       (4 * 60)    /* 4 second cooldown: no spam */
+#define HADOUKEN_DMG      5           /* low damage */
+#define HADOUKEN_KB       80          /* light knockback */
+#define HADOUKEN_HITBOX   400         /* collision radius */
+#define HADOUKEN_MOVE_IDX 32          /* index in MOVES table */
+
 /* ---------------------------------------------------------------------- */
 /* 5x7 bitmap font for the big announcements (0-9 A-Z ! .)                  */
 /* ---------------------------------------------------------------------- */
@@ -173,6 +182,9 @@ static void fighter_reset(Fighter *f, int side) {
 	f->guard_t = 0;
 	f->hits_taken = 0;
 	f->in_pressed = 0;
+	f->hadouken_cd = 0;
+	f->cmd_idx = 0;
+	for (int i = 0; i < 8; i++) f->cmd_hist[i] = 0;
 	set_anim(f, f->anim_idle);
 }
 
@@ -264,6 +276,98 @@ static void start_round(Fight *fg) {
 	fg->timer = ROUND_FRAMES;
 	fg->winner = -1;
 	fg->ringout = 0;
+	for (int i = 0; i < MAX_PROJECTILES; i++) fg->proj[i].active = 0;
+}
+
+/* ---- 236 command detection (quarter-circle forward + attack) ------------- */
+/* Records d-pad state each frame and checks for down -> down-forward -> forward
+ * sequence within the last ~12 frames, relative to the fighter's facing direction.
+ * Returns 1 if the command was detected. */
+static void record_dpad(Fighter *f, uint16_t held) {
+	uint16_t dpad = held & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT);
+	f->cmd_hist[f->cmd_idx] = dpad;
+	f->cmd_idx = (f->cmd_idx + 1) & 7;
+}
+
+static int check_236(const Fighter *f, int dir) {
+	/* dir > 0: opponent is to the right, so forward = RIGHT
+	 * dir < 0: opponent is to the left, so forward = LEFT */
+	uint16_t down = PAD_DOWN;
+	uint16_t fwd  = dir > 0 ? PAD_RIGHT : PAD_LEFT;
+	uint16_t dfwd = down | fwd;  /* down-forward */
+
+	/* scan the circular buffer backwards for the sequence: down -> down-fwd -> fwd
+	 * allow some leniency (a few frames per step) */
+	int idx = (f->cmd_idx - 1) & 7;
+	int state = 0;  /* 0: looking for fwd, 1: looking for down-fwd, 2: looking for down */
+	int frames[3] = {0, 0, 0};  /* frames spent in each state */
+	const int MAX_GAP = 4;  /* max frames for each step */
+
+	for (int i = 0; i < 8; i++) {
+		uint16_t d = f->cmd_hist[idx];
+		idx = (idx - 1) & 7;
+
+		if (state == 0) {
+			/* looking for forward (most recent input) */
+			if ((d & (PAD_DOWN | fwd)) == fwd) {
+				frames[0]++;
+				if (frames[0] >= 1) state = 1;
+			} else if ((d & (PAD_DOWN | fwd)) == dfwd) {
+				/* can skip directly to down-forward */
+				state = 1;
+				frames[1] = 1;
+			} else if (frames[0] > 0) {
+				break;  /* gap too large */
+			}
+		} else if (state == 1) {
+			/* looking for down-forward */
+			if ((d & (PAD_DOWN | fwd)) == dfwd) {
+				frames[1]++;
+				if (frames[1] >= 1) state = 2;
+			} else if ((d & (PAD_DOWN | fwd)) == down) {
+				/* can skip directly to down */
+				state = 2;
+				frames[2] = 1;
+			} else if (frames[1] > 0 && frames[1] < MAX_GAP) {
+				/* allow small gap */
+			} else if (frames[1] >= MAX_GAP) {
+				break;
+			}
+		} else if (state == 2) {
+			/* looking for down */
+			if ((d & (PAD_DOWN | fwd)) == down) {
+				frames[2]++;
+				if (frames[2] >= 1) return 1;  /* success! */
+			} else if (frames[2] > 0 && frames[2] < MAX_GAP) {
+				/* allow small gap */
+			} else if (frames[2] >= MAX_GAP) {
+				break;
+			}
+		}
+	}
+	return 0;
+}
+
+/* spawn a hadouken projectile for fighter `side` */
+static void spawn_hadouken(Fight *fg, int side) {
+	Fighter *f = &fg->f[side];
+	int dir = (fg->f[1 - side].x > f->x) ? 1 : -1;
+
+	/* find a free projectile slot */
+	for (int i = 0; i < MAX_PROJECTILES; i++) {
+		Projectile *p = &fg->proj[i];
+		if (p->active) continue;
+
+		p->active = 1;
+		p->owner = side;
+		p->x = f->x + dir * 600;  /* spawn in front of the fighter */
+		p->y = -1800;             /* chest height */
+		p->z = f->z;
+		p->vx = dir * HADOUKEN_SPEED;
+		p->life = HADOUKEN_RANGE / HADOUKEN_SPEED;  /* frames until it disappears */
+		p->dmg = HADOUKEN_DMG;
+		break;
+	}
 }
 
 /* ---- attacks --------------------------------------------------------- */
@@ -392,6 +496,15 @@ static int player_act(Fight *fg, int i, int dir) {
 	f->in_pressed = 0;
 	int btn = attack_button(pressed, held);
 	if (btn) {
+		/* check for 236+P hadouken command (quarter-circle forward + punch) */
+		if (btn == ATK_P && f->hadouken_cd <= 0 && check_236(f, dir)) {
+			int m = HADOUKEN_MOVE_IDX;
+			if (f->move_anim[m] >= 0) {
+				f->hadouken_cd = HADOUKEN_CD;
+				start_single(fg, i, m);
+				return 1;
+			}
+		}
 		if (btn == ATK_S && f->special_cd > 0) btn = ATK_P;   /* special on cooldown: a punch */
 		int m = player_move(f, held, dir, btn);
 		if (MOVES[m].cat == CAT_SPECIAL) f->special_cd = 4 * 60;
@@ -437,6 +550,8 @@ static void fighter_ai(Fight *fg, int i) {
 	else f->yaw_corr = 0;
 	const ModelAnim *a = &f->model->anims[f->pose.anim];
 	if (f->special_cd > 0) f->special_cd -= g_step;
+	if (f->hadouken_cd > 0) f->hadouken_cd -= g_step;
+	if (f->human) record_dpad(f, f->in_held);  /* track d-pad for command inputs */
 
 	switch (f->state) {
 	case FS_IDLE: {
@@ -623,6 +738,11 @@ static void fighter_ai(Fight *fg, int i) {
 				if (MOVES[m].cat == CAT_SPECIAL) f->special_cd = 4 * 60;
 				f->combo[f->combo_len++] = m;
 			}
+		}
+		/* hadouken: spawn projectile at the "release" frame (50%) */
+		if (f->move == HADOUKEN_MOVE_IDX && !f->hit_done && pct >= 50) {
+			f->hit_done = 1;  /* only spawn once */
+			spawn_hadouken(fg, i);
 		}
 		int active = pct >= mv->hit_from && pct <= mv->hit_to;
 		/* travel: the move carries the body forward around its active frames */
@@ -964,6 +1084,70 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 			fg->advice_cd = ADVICE_CD_MIN + (rnd(fg) % (ADVICE_CD_MAX - ADVICE_CD_MIN));
 		}
 	}
+
+	/* ---- projectile (hadouken) update ------------------------------------ */
+	for (int k = 0; k < MAX_PROJECTILES; k++) {
+		Projectile *p = &fg->proj[k];
+		if (!p->active) continue;
+
+		/* move the projectile */
+		p->x += p->vx * g_step;
+		p->life -= g_step;
+
+		/* disappear at range limit or stage edge */
+		if (p->life <= 0 || p->x < -STAGE_EDGE || p->x > STAGE_EDGE) {
+			p->active = 0;
+			continue;
+		}
+
+		/* hit detection against the opponent */
+		Fighter *o = &fg->f[1 - p->owner];
+		int dx = p->x - o->x;
+		if (dx < 0) dx = -dx;
+		int dz = p->z - o->z;
+		if (dz < 0) dz = -dz;
+
+		if (dx < HADOUKEN_HITBOX && dz < 300 && o->state != FS_KO && o->state != FS_DOWN) {
+			/* check if guarded */
+			int guarded = o->state == FS_GUARD;
+			int dmg = guarded ? (p->dmg + 3) / 4 : p->dmg;
+			if (guarded && o->hp - dmg <= 0) dmg = o->hp - 1;  /* no chip KO */
+			o->hp -= dmg;
+
+			/* hit effect */
+			int dir = p->vx > 0 ? 1 : -1;
+			for (int j = 0; j < MAX_FX; j++) {
+				if (fg->fx[j].active) continue;
+				fg->fx[j].active = 1;
+				fg->fx[j].t = guarded ? 8 : 0;
+				fg->fx[j].x = o->x - dir * 280;
+				fg->fx[j].y = p->y;
+				fg->fx[j].z = o->z;
+				break;
+			}
+
+			fg->shake = guarded ? 2 : 6;
+			if (guarded) {
+				o->kb = dir * (HADOUKEN_KB / 3);
+				o->guard_t += 4;
+				fg->hitstop = 2;
+			} else if (o->hp <= 0) {
+				o->hp = 0;
+				o->state = FS_KO;
+				set_anim(o, o->anim_ko);
+			} else {
+				o->state = FS_HIT;
+				set_anim(o, o->anim_hit);
+				o->pose.speed = 512;
+				o->hits_taken++;
+				o->kb = dir * HADOUKEN_KB;
+				fg->hitstop = 3;
+			}
+
+			p->active = 0;  /* projectile consumed on hit */
+		}
+	}
+
 	for (int i = 0; i < 2; i++) {
 		Fighter *f = &fg->f[i], *o = &fg->f[1 - i];
 		if (f->state == FS_ATTACK && (MOVES[f->move].flags & MF_NOLOOK)) continue;   /* inverted: no look-at */
@@ -1022,6 +1206,47 @@ static char *draw_fx(Fight *fg, const Camera *cam, uint32_t *ot, char *nextpri) 
 			setTile(t); setRGB0(t, 255, 255, 255);
 			setXY0(t, cx - 6, cy - 6); setWH(t, 12, 12); addPrim(ot, t); t++;
 		}
+	}
+	return (char *)t;
+}
+
+/* hadouken projectile: glowing energy ball (blue/cyan gradient) */
+static char *draw_projectiles(Fight *fg, const Camera *cam, uint32_t *ot, char *nextpri) {
+	TILE *t = (TILE *)nextpri;
+	gte_SetRotMatrix(&cam->view);
+	gte_SetTransMatrix(&cam->view);
+
+	for (int k = 0; k < MAX_PROJECTILES; k++) {
+		Projectile *p = &fg->proj[k];
+		if (!p->active) continue;
+
+		SVECTOR v = { p->x, p->y, p->z, 0 };
+		uint32_t sxy; int32_t sz;
+		gte_ldv0(&v); gte_rtps();
+		__asm__ volatile("swc2 $14, 0(%0); swc2 $19, 0(%1)" :: "r"(&sxy), "r"(&sz) : "memory");
+		if (sz <= 0) continue;
+
+		int cx = (int16_t)(sxy & 0xffff), cy = (int16_t)(sxy >> 16);
+
+		/* outer glow (cyan, semi-transparent look via dithering) */
+		setTile(t); setRGB0(t, 60, 180, 220);
+		setXY0(t, cx - 10, cy - 10); setWH(t, 20, 20);
+		addPrim(ot, t); t++;
+
+		/* middle ring (brighter cyan) */
+		setTile(t); setRGB0(t, 100, 220, 255);
+		setXY0(t, cx - 7, cy - 7); setWH(t, 14, 14);
+		addPrim(ot, t); t++;
+
+		/* inner core (white-ish) */
+		setTile(t); setRGB0(t, 200, 255, 255);
+		setXY0(t, cx - 4, cy - 4); setWH(t, 8, 8);
+		addPrim(ot, t); t++;
+
+		/* bright center */
+		setTile(t); setRGB0(t, 255, 255, 255);
+		setXY0(t, cx - 2, cy - 2); setWH(t, 4, 4);
+		addPrim(ot, t); t++;
 	}
 	return (char *)t;
 }
@@ -1130,6 +1355,7 @@ char *fight_draw(Fight *fg, const Camera *cam, uint32_t *ot, char *nextpri) {
 		nextpri = render_model(f->renderer, f->model, &f->pose, &fc, ot, nextpri);
 	}
 	nextpri = draw_fx(fg, cam, ot, nextpri);
+	nextpri = draw_projectiles(fg, cam, ot, nextpri);
 	if (fg->demo) return nextpri;
 	return draw_hud(fg, ot, nextpri);
 }

@@ -44,10 +44,23 @@ typedef struct {
 	int human;                 /* 1: driven by a pad (fight_input) instead of the AI */
 	uint16_t in_held, in_pressed;   /* pad state for this frame (fight_input) */
 	int anim_idle, anim_run, anim_hit, anim_ko, anim_win, anim_jump, anim_fall, anim_guard;
+	int hadouken_cd;           /* hadouken cooldown (frames) */
+	uint16_t cmd_hist[8];      /* d-pad history for command inputs (circular buffer) */
+	int cmd_idx;               /* next index to write in cmd_hist */
 } Fighter;
 
 #define MAX_FX 6
 typedef struct { int active, t, x, y, z; } HitFx;
+
+#define MAX_PROJECTILES 2
+typedef struct {
+	int active;
+	int owner;         /* 0 or 1: which fighter fired it */
+	int x, y, z;       /* world position */
+	int vx;            /* velocity along x axis */
+	int life;          /* frames remaining (short range) */
+	int dmg;           /* damage on hit */
+} Projectile;
 
 enum { FP_ROUND, FP_FIGHT, FP_FIGHTING, FP_KO, FP_END };
 
@@ -71,6 +84,7 @@ typedef struct {
 	int advice_t;                       /* frames left to show current advice */
 	int advice_idx;                     /* index of current advice phrase */
 	int advice_cd;                      /* frames until next advice appears */
+	Projectile proj[MAX_PROJECTILES];   /* hadouken / fireball projectiles */
 } Fight;
 
 void fight_init(Fight *fg, const Model *m0, Renderer *r0, const Model *m1, Renderer *r1);
