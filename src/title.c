@@ -2,6 +2,7 @@
 #include <psxpad.h>
 #include "title.h"
 #include "fight.h"
+#include "build_info.h"
 
 #define SCREEN_XRES 320
 #define SCREEN_YRES 240
@@ -9,9 +10,46 @@
 
 static const char *const MENU[NUM_MODES] = { "1P MODE", "VS MODE", "CPU MODE" };
 
+static char build_banner[48];
+static int build_banner_init = 0;
+
 void title_init(Title *tt) {
 	tt->sel = 0;
 	tt->t = 0;
+	if (!build_banner_init) {
+		/* format: "V0.1.0 ABC1234 2026.09.04" - version commit date */
+		char *p = build_banner;
+		const char *v = BUILD_VERSION;
+		const char *c = BUILD_COMMIT;
+		const char *d = BUILD_DATE;
+		/* copy version (uppercase, limit length) */
+		int n = 0;
+		while (*v && n < 12) {
+			char ch = *v++;
+			if (ch >= 'a' && ch <= 'z') ch -= 32;
+			if (ch == '-') ch = '.';
+			*p++ = ch; n++;
+		}
+		*p++ = ' ';
+		/* copy commit (7 chars max) */
+		n = 0;
+		while (*c && n < 7) {
+			char ch = *c++;
+			if (ch >= 'a' && ch <= 'z') ch -= 32;
+			*p++ = ch; n++;
+		}
+		*p++ = ' ';
+		/* copy date: convert "2026-09-04 10:15" to "2026.09.04" */
+		n = 0;
+		while (*d && n < 10) {
+			char ch = *d++;
+			if (ch == '-') ch = '.';
+			if (ch == ' ') break;
+			*p++ = ch; n++;
+		}
+		*p = 0;
+		build_banner_init = 1;
+	}
 }
 
 int title_update(Title *tt, uint16_t pressed) {
@@ -46,7 +84,9 @@ char *title_draw(const Title *tt, uint32_t *ot, char *nextpri) {
 	}
 	if (pulse || tt->t < 60)
 		nextpri = fight_text("PUSH START BUTTON", CENTERX, 206, 1, 230, 230, 230, ot, nextpri);
-	nextpri = fight_text("2026 GOROMAN", CENTERX, 226, 1, 140, 140, 160, ot, nextpri);
+	nextpri = fight_text("2026 GOROMAN", CENTERX, 218, 1, 140, 140, 160, ot, nextpri);
+	/* build metadata banner: version commit date */
+	nextpri = fight_text(build_banner, CENTERX, 228, 1, 100, 100, 120, ot, nextpri);
 	/* dim the demo fight behind the menu: 50 % black over the whole screen */
 	TILE *dim = (TILE *)nextpri;
 	setTile(dim);

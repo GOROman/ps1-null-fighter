@@ -7,6 +7,56 @@ project(
 	DESCRIPTION  "Skinned FBX character viewer for PlayStation 1"
 )
 
+# Build metadata for the title screen banner
+# git describe for version, short SHA for commit, UTC timestamp for date
+# Falls back to CMake variables / env vars (for CI) when git is unavailable
+execute_process(
+	COMMAND git describe --tags --always --dirty
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+	OUTPUT_VARIABLE GIT_VERSION
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+	ERROR_QUIET
+	RESULT_VARIABLE GIT_VERSION_RESULT
+)
+execute_process(
+	COMMAND git rev-parse --short HEAD
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+	OUTPUT_VARIABLE GIT_COMMIT
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+	ERROR_QUIET
+	RESULT_VARIABLE GIT_COMMIT_RESULT
+)
+string(TIMESTAMP BUILD_TIMESTAMP "%Y-%m-%d %H:%M" UTC)
+
+# Use git values if available, otherwise fallback
+if(GIT_VERSION_RESULT EQUAL 0 AND GIT_VERSION)
+	set(BUILD_VERSION "${GIT_VERSION}")
+else()
+	if(DEFINED ENV{GITHUB_REF_NAME})
+		set(BUILD_VERSION "$ENV{GITHUB_REF_NAME}")
+	else()
+		set(BUILD_VERSION "${PROJECT_VERSION}")
+	endif()
+endif()
+
+if(GIT_COMMIT_RESULT EQUAL 0 AND GIT_COMMIT)
+	set(BUILD_COMMIT "${GIT_COMMIT}")
+else()
+	if(DEFINED ENV{GITHUB_SHA})
+		string(SUBSTRING "$ENV{GITHUB_SHA}" 0 7 BUILD_COMMIT)
+	else()
+		set(BUILD_COMMIT "unknown")
+	endif()
+endif()
+
+set(BUILD_DATE "${BUILD_TIMESTAMP}")
+
+configure_file(
+	${PROJECT_SOURCE_DIR}/src/build_info.h.in
+	${PROJECT_BINARY_DIR}/build_info.h
+	@ONLY
+)
+
 # Convert both characters into the runtime formats.  Requires python3 with
 # numpy + Pillow (+ xatlas for --reatlas) on the build host.
 #   schoolgirl  un-rigged Tripo mesh: decimated to MODEL_TRIS triangles,
@@ -93,7 +143,7 @@ psn00bsdk_add_executable(nullfighter GPREL
 	src/fight.c
 	src/title.c
 )
-target_include_directories(nullfighter PRIVATE src)
+target_include_directories(nullfighter PRIVATE src ${PROJECT_BINARY_DIR})
 target_link_libraries(nullfighter PRIVATE psxgpu psxgte psxetc psxapi)
 add_dependencies(nullfighter assets)
 psn00bsdk_target_incbin(nullfighter PRIVATE schoolgirl_bin ${ASSET_OUT}/schoolgirl.bin)
