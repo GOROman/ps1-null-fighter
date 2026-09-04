@@ -10,6 +10,10 @@ enum { MODE_1P = 0, MODE_VS, MODE_CPU, NUM_MODES };
 typedef struct {
 	int sel;               /* highlighted menu entry */
 	int t;                 /* frames on the title */
+	int advice_t;          /* frames left to show current advice */
+	int advice_idx;        /* index of current advice phrase */
+	int advice_cd;         /* frames until next advice appears */
+	uint32_t rng;          /* random state for advice timing */
 } Title;
 
 void title_init(Title *tt);

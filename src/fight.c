@@ -176,6 +176,28 @@ static void fighter_reset(Fighter *f, int side) {
 	set_anim(f, f->anim_idle);
 }
 
+/* ---- advice phrases ("GOIKEN") ----------------------------------------
+ * Random advice/opinions that appear during fights, fitting the world of
+ * "Goiken Yuuyou" (Your Opinion is Valuable).  Short, dignified lines. */
+static const char *const ADVICE[] = {
+	"FIST SPEAKS TRUTH",
+	"HONOR YOUR FOES",
+	"STYLE IS VICTORY",
+	"BREATHE. STRIKE.",
+	"FLOW LIKE WATER",
+	"READ THE MOMENT",
+	"NO WASTED MOTION",
+	"PATIENCE WINS",
+	"RESPECT THE RING",
+	"COURAGE IS CALM",
+	"FIGHT WITH GRACE",
+	"ONE CHANCE. SEIZE.",
+};
+#define NUM_ADVICE ((int)(sizeof(ADVICE) / sizeof(ADVICE[0])))
+#define ADVICE_SHOW_FRAMES  180    /* how long advice stays on screen (3 s) */
+#define ADVICE_CD_MIN       300    /* minimum frames between advice (5 s) */
+#define ADVICE_CD_MAX       600    /* maximum frames between advice (10 s) */
+
 /* ---- combos ---------------------------------------------------------- */
 /* attack chains by move name; resolved to move indices at init */
 static const char *const COMBO_NAMES[][4] = {
@@ -218,6 +240,9 @@ void fight_init(Fight *fg, const Model *m0, Renderer *r0, const Model *m1, Rende
 	fg->cam_dist = 6000;
 	fg->cam_pitch = 160;
 	fg->cam_target = vec(0, -1900, 0);
+	fg->advice_t = 0;
+	fg->advice_idx = 0;
+	fg->advice_cd = ADVICE_CD_MIN + (fg->rng % (ADVICE_CD_MAX - ADVICE_CD_MIN));
 }
 
 void fight_set_players(Fight *fg, int p0_human, int p1_human) {
@@ -927,6 +952,18 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 	if (fg->hitstop > 0) fg->hitstop -= g_step;
 	if (fg->name_t > 0) fg->name_t -= g_step;
 	if (fg->counter_t > 0) fg->counter_t -= g_step;
+	/* advice popup: random timing during fights */
+	if (fg->phase == FP_FIGHTING) {
+		if (fg->advice_t > 0) {
+			fg->advice_t -= g_step;
+		} else if (fg->advice_cd > 0) {
+			fg->advice_cd -= g_step;
+		} else {
+			fg->advice_idx = rnd(fg) % NUM_ADVICE;
+			fg->advice_t = ADVICE_SHOW_FRAMES;
+			fg->advice_cd = ADVICE_CD_MIN + (rnd(fg) % (ADVICE_CD_MAX - ADVICE_CD_MIN));
+		}
+	}
 	for (int i = 0; i < 2; i++) {
 		Fighter *f = &fg->f[i], *o = &fg->f[1 - i];
 		if (f->state == FS_ATTACK && (MOVES[f->move].flags & MF_NOLOOK)) continue;   /* inverted: no look-at */
@@ -1070,6 +1107,17 @@ static char *draw_hud(Fight *fg, uint32_t *ot, char *nextpri) {
 		nm[k] = 0;
 		nextpri = fight_text(nm, fg->name_side ? SCREEN_XRES - 84 : 84, 178, 2,
 		                   255, 255, fg->name_t > 40 ? 255 : 120, ot, nextpri);
+	}
+	/* advice popup ("goiken"): appears at random intervals at top center */
+	if (fg->advice_t > 0) {
+		int fade = fg->advice_t > 150 ? (180 - fg->advice_t) * 255 / 30 :
+		           fg->advice_t < 30 ? fg->advice_t * 255 / 30 : 255;
+		if (fade > 255) fade = 255;
+		if (fade < 0) fade = 0;
+		int r = (180 * fade) / 255;
+		int g = (220 * fade) / 255;
+		int b = (255 * fade) / 255;
+		nextpri = fight_text(ADVICE[fg->advice_idx], CENTERX, 200, 1, r, g, b, ot, nextpri);
 	}
 	return nextpri;
 }
