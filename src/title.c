@@ -8,7 +8,7 @@
 #define SCREEN_YRES 240
 #define CENTERX     (SCREEN_XRES >> 1)
 
-static const char *const MENU[NUM_MODES] = { "1P MODE", "VS MODE", "CPU MODE" };
+static const char *const MENU[NUM_MODES] = { "1P MODE", "VS MODE", "TRAINING MODE", "CPU MODE" };
 
 static char build_banner[64];
 static int build_banner_init = 0;
@@ -107,12 +107,12 @@ char *title_draw(const Title *tt, uint32_t *ot, char *nextpri) {
 	nextpri = fight_text("NULL FIGHTER", CENTERX, 44, 4, 255, 236, 120, ot, nextpri);
 	nextpri = fight_text("PLAYSTATION 3D FIGHTING", CENTERX, 84, 1, 200, 200, 220, ot, nextpri);
 	for (int i = 0; i < NUM_MODES; i++) {
-		int y = 128 + i * 22;
+		int y = 118 + i * 18;
 		int on = i == tt->sel;
 		nextpri = fight_text(MENU[i], CENTERX, y, 2, on ? 255 : 150, on ? 240 : 150, on ? 80 : 170, ot, nextpri);
 		if (on) {
 			/* cursor: a small blinking block on each side of the entry */
-			int w = 8 * 6 * 2;                       /* widest entry, "CPU MODE" */
+			int w = 13 * 6 * 2;                      /* widest entry, "TRAINING MODE" */
 			TILE *t = (TILE *)nextpri;
 			int c = pulse ? 255 : 120;
 			setTile(t); setRGB0(t, c, c, 60); setXY0(t, CENTERX - w / 2 - 16, y + 4); setWH(t, 6, 6); addPrim(ot, t); t++;
@@ -129,7 +129,7 @@ char *title_draw(const Title *tt, uint32_t *ot, char *nextpri) {
 		int r = (180 * fade) / 255;
 		int g = (220 * fade) / 255;
 		int b = (255 * fade) / 255;
-		nextpri = fight_text(TITLE_ADVICE[tt->advice_idx], CENTERX, 108, 1, r, g, b, ot, nextpri);
+		nextpri = fight_text(TITLE_ADVICE[tt->advice_idx], CENTERX, 100, 1, r, g, b, ot, nextpri);
 	}
 	if (pulse || tt->t < 60)
 		nextpri = fight_text("PUSH START BUTTON", CENTERX, 206, 1, 230, 230, 230, ot, nextpri);

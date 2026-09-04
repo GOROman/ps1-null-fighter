@@ -578,8 +578,16 @@ int main(void) {
 			screen = SCR_FIGHT;
 			fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
 			fight_set_players(&fight, game_mode != MODE_CPU, game_mode == MODE_VS);
+			if (game_mode == MODE_TRAINING)
+				fight_set_training(&fight, 1);
 		}
-		if (screen == SCR_FIGHT && fight.match_over && game_mode != MODE_CPU) {
+		/* training mode: R1 resets to initial state (on press, not hold) */
+		if (screen == SCR_FIGHT && game_mode == MODE_TRAINING && (pressed & PAD_R1)) {
+			fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
+			fight_set_players(&fight, 1, 0);
+			fight_set_training(&fight, 1);
+		}
+		if (screen == SCR_FIGHT && fight.match_over && game_mode != MODE_CPU && game_mode != MODE_TRAINING) {
 			screen = SCR_TITLE;                                  /* match done: back to the menu */
 			title_init(&title);
 			fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);

@@ -91,11 +91,16 @@ typedef struct {
 	int dogeza_bubble_t;                /* dogeza speech bubble display timer */
 	int dogeza_bubble_side;             /* which fighter is doing dogeza (0 or 1) */
 	int dogeza_bubble_x, dogeza_bubble_y; /* screen position of the speech bubble */
+	/* training mode */
+	int training;                       /* 1: training mode active */
+	int last_dmg;                       /* damage of the last hit for DMG display */
 } Fight;
 
 void fight_init(Fight *fg, const Model *m0, Renderer *r0, const Model *m1, Renderer *r1);
 /* which fighters are pad controlled (call after fight_init) */
 void fight_set_players(Fight *fg, int p0_human, int p1_human);
+/* enable training mode: P1 human, P2 dummy, no timer/KO/ringout */
+void fight_set_training(Fight *fg, int training);
 /* pad state for fighter `side` this frame: `held` / `pressed` are ~btn masks (PAD_*).
  * Virtua Fighter style P / K / G:
  *   D-pad left/right   walk towards / away (screen direction)

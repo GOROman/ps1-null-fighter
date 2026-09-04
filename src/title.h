@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <psxgpu.h>
 
-enum { MODE_1P = 0, MODE_VS, MODE_CPU, NUM_MODES };
+enum { MODE_1P = 0, MODE_VS, MODE_TRAINING, MODE_CPU, NUM_MODES };
 
 typedef struct {
 	int sel;               /* highlighted menu entry */
