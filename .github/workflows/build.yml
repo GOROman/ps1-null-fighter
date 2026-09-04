@@ -1,5 +1,6 @@
-# Build the PlayStation CD image (build/nullfighter.cue + .bin) on every push
-# and pull request with PSn00bSDK v0.24, and attach it to a release on tags.
+# Build the PlayStation CD image with PSn00bSDK v0.24 on every push and pull
+# request, zip it with the manual and the changelog, keep a rolling "latest"
+# pre-release on main, and make a proper release on v* tags.
 name: build
 
 on:
@@ -20,6 +21,8 @@ jobs:
       contents: write          # release upload on tags
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -64,23 +67,51 @@ jobs:
       - name: Build
         run: cmake --build ./build --verbose
 
-      - name: Collect
+      - name: Package
         run: |
           set -eux
-          mkdir -p dist
-          cp build/nullfighter.bin build/nullfighter.cue build/nullfighter.exe build/nullfighter.elf dist/
-          ls -l dist
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then ver="$GITHUB_REF_NAME"; else ver="main-$(git rev-parse --short HEAD)"; fi
+          echo "VER=$ver" >> "$GITHUB_ENV"
+          d="nullfighter-$ver"
+          mkdir -p "$d"
+          cp build/nullfighter.bin build/nullfighter.cue "$d/"
+          cp docs/遊び方.md "$d/MANUAL.md"
+          cp CHANGELOG.md "$d/"
+          cp docs/release-readme.txt "$d/README.txt"
+          printf '%s\n%s\n%s\n' "御意見有用 $ver" "commit $(git rev-parse HEAD)" "built $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$d/VERSION.txt"
+          zip -9 -r "$d.zip" "$d"
+          ls -l "$d" "$d.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: nullfighter-${{ github.sha }}
-          path: dist/
+          name: nullfighter-${{ env.VER }}
+          path: nullfighter-${{ env.VER }}.zip
+
+      - name: Release notes
+        if: github.event_name == 'push'
+        run: |
+          set -eux
+          git fetch --tags --force --quiet || true
+          prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
+          {
+            echo "## $VER"
+            echo
+            echo "cue / bin の CD イメージ、操作説明 (MANUAL.md)、変更履歴 (CHANGELOG.md) 入り。"
+            echo
+            if [[ -n "$prev" ]]; then echo "### $prev 以降のコミット"; git log --format='- %s' "$prev"..HEAD; else echo "### コミット"; git log --format='- %s' -20; fi
+          } > notes.md
 
       - name: Release (tags)
         if: startsWith(github.ref, 'refs/tags/v')
+        run: gh release create "$VER" "nullfighter-$VER.zip" --title "御意見有用 $VER" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Rolling "latest" pre-release (main)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
           set -eux
-          (cd dist && zip -9 ../nullfighter-${GITHUB_REF_NAME}.zip nullfighter.bin nullfighter.cue nullfighter.exe)
-          gh release create "$GITHUB_REF_NAME" nullfighter-${GITHUB_REF_NAME}.zip --title "NULL FIGHTER $GITHUB_REF_NAME" --generate-notes
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest "nullfighter-$VER.zip" --prerelease --title "御意見有用 latest ($VER)" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}

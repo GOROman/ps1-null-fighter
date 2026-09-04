@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>御意見有用 | PlayStation 3D 対戦格闘</title>
+<meta name="description" content="初代 PlayStation 向け 3D 対戦格闘ゲーム「御意見有用」公式サイト。ストーリー、キャラクター、遊び方、御意見の書き方、ダウンロード。">
+<meta property="og:title" content="御意見有用">
+<meta property="og:description" content="皆様の意見で育つ PS1 用 3D 格闘ゲーム。悪の組織シャルドネの洗脳大会に挑め。">
+<meta property="og:image" content="img/screenshot-fight.png">
+<style>
+  :root {
+    --bg: #0b0d1a; --bg2: #141833; --panel: #1b2040; --line: #2f3670;
+    --fg: #e8e9f2; --dim: #a5a9c8; --yellow: #ffdc28; --red: #ff5040; --cyan: #3cc8f0; --magenta: #e650e6;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; line-height: 1.7; }
+  a { color: var(--cyan); }
+  header.hero { position: relative; overflow: hidden; background: linear-gradient(180deg, #1a1f45 0%, var(--bg) 100%); border-bottom: 2px solid var(--line); }
+  header.hero::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,.18) 2px 4px); pointer-events: none; }
+  .hero-inner { position: relative; max-width: 1040px; margin: 0 auto; padding: 48px 20px 32px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; align-items: center; }
+  .hero h1 { margin: 0; font-size: clamp(44px, 8vw, 84px); line-height: 1.05; letter-spacing: .04em; color: var(--yellow); text-shadow: 4px 4px 0 #0a0a14, 0 0 24px rgba(255,220,40,.35); }
+  .hero .sub { margin: 10px 0 0; font-size: 14px; letter-spacing: .3em; color: var(--dim); text-transform: uppercase; }
+  .hero p.lead { margin: 18px 0 0; font-size: 18px; }
+  .hero .shot { border: 3px solid var(--line); box-shadow: 0 0 0 3px #000, 0 12px 40px rgba(0,0,0,.6); image-rendering: pixelated; width: 100%; display: block; background: #000; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+  .btn { display: inline-block; padding: 12px 20px; border: 2px solid var(--yellow); color: #101020; background: var(--yellow); font-weight: 700; text-decoration: none; box-shadow: 4px 4px 0 #000; }
+  .btn.alt { background: transparent; color: var(--yellow); }
+  .btn:hover { transform: translate(-1px,-1px); box-shadow: 5px 5px 0 #000; }
+  nav.top { position: sticky; top: 0; z-index: 5; background: rgba(11,13,26,.94); border-bottom: 1px solid var(--line); backdrop-filter: blur(4px); }
+  nav.top ul { list-style: none; margin: 0 auto; padding: 0 12px; max-width: 1040px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  nav.top a { display: block; padding: 10px 2px; color: var(--fg); text-decoration: none; font-size: 14px; border-bottom: 2px solid transparent; }
+  nav.top a:hover { border-color: var(--yellow); }
+  main { max-width: 1040px; margin: 0 auto; padding: 8px 20px 60px; }
+  section { padding: 44px 0 12px; border-bottom: 1px solid var(--line); }
+  h2 { font-size: 30px; margin: 0 0 18px; color: var(--yellow); letter-spacing: .06em; }
+  h2 small { display: block; font-size: 12px; letter-spacing: .3em; color: var(--dim); font-weight: 400; }
+  h3 { margin: 26px 0 8px; font-size: 19px; color: var(--cyan); }
+  .story p { font-size: 17px; max-width: 760px; }
+  .story blockquote { margin: 18px 0; padding: 14px 20px; border-left: 4px solid var(--red); background: var(--panel); font-style: italic; }
+  .story .tagline { font-size: 24px; font-weight: 700; color: var(--red); text-shadow: 3px 3px 0 #000; }
+  .chars { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+  .card { background: var(--panel); border: 2px solid var(--line); padding: 20px; box-shadow: 6px 6px 0 #000; }
+  .card .tag { font-size: 12px; letter-spacing: .25em; color: var(--dim); }
+  .card h3 { margin: 4px 0 8px; font-size: 24px; color: var(--yellow); }
+  .card dl { margin: 12px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; }
+  .card dt { color: var(--dim); }
+  .card dd { margin: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: 15px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; width: 34%; }
+  .tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 32px; }
+  kbd { display: inline-block; min-width: 1.8em; text-align: center; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 4px; background: var(--bg2); font-family: inherit; font-size: 14px; }
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .modes .card h3 { font-size: 20px; }
+  ul.tips li { margin: 6px 0; }
+  .good, .bad { border: 2px solid var(--line); padding: 14px 18px; background: var(--bg2); font-size: 15px; }
+  .good { border-color: #3fa060; } .bad { border-color: #a04040; }
+  .good b { color: #6fdc8c; } .bad b { color: var(--red); }
+  .issue-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .steps { counter-reset: s; list-style: none; padding: 0; }
+  .steps li { counter-increment: s; position: relative; padding-left: 46px; margin: 12px 0; }
+  .steps li::before { content: counter(s); position: absolute; left: 0; top: 2px; width: 32px; height: 32px; display: grid; place-items: center; background: var(--yellow); color: #101020; font-weight: 700; box-shadow: 3px 3px 0 #000; }
+  footer { text-align: center; color: var(--dim); font-size: 13px; padding: 30px 20px 50px; }
+  code { background: var(--bg2); padding: 1px 6px; border-radius: 3px; font-size: .92em; }
+  @media (max-width: 760px) { .hero-inner { grid-template-columns: 1fr; padding-top: 28px; } th { width: 42%; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div>
+      <p class="sub">PlayStation 3D Fighting</p>
+      <h1>御意見有用</h1>
+      <p class="lead">悪の組織シャルドネが主催する洗脳大会に、拳で意見を述べに行く。初代 PlayStation で動く、皆様の意見で育つ 3D 対戦格闘ゲーム。</p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/GOROman/ps1-null-fighter/releases/latest">ダウンロード（最新版 zip）</a>
+        <a class="btn alt" href="https://github.com/GOROman/ps1-null-fighter/issues/new/choose">御意見を送る</a>
+      </div>
+    </div>
+    <img class="shot" src="img/screenshot-fight.png" alt="ROUND 1 の画面。制服の音有A子と金髪のナル・ブランドーが向かい合う" width="995" height="700">
+  </div>
+</header>
+
+<nav class="top"><ul>
+  <li><a href="#story">ストーリー</a></li>
+  <li><a href="#chars">キャラクター</a></li>
+  <li><a href="#play">遊び方</a></li>
+  <li><a href="#system">システム</a></li>
+  <li><a href="#issues">御意見の書き方</a></li>
+  <li><a href="#download">ダウンロード</a></li>
+</ul></nav>
+
+<main>
+
+<section id="story" class="story">
+  <h2>ストーリー<small>STORY</small></h2>
+  <p>199X 年、東池袋。</p>
+  <p>世界各地で腕利きの格闘家が次々と姿を消していた。裏で糸を引くのは、ワインの流通網を隠れ蓑に世界征服を企む悪の組織 <b>シャルドネ</b>。総帥は、選び抜いた格闘家に禁断の洗脳術「熟成」を施し、意思のない最強の戦闘兵器へと造り変えていた。</p>
+  <p>そして今夜、シャルドネからの招待状が届く。</p>
+  <blockquote>世界最強を決める大会「御意見有用」を開催する。勝ち残った者には、何でも望みを一つ叶えよう。</blockquote>
+  <p>集まった格闘家たちは知らない。この大会が、次の「熟成」候補を選ぶための品評会であることを。</p>
+  <p>ナル・ブランドーは、消えた師の行方を追ってリングに上がる。音有A子は、洗脳された親友を取り戻すために制服のまま会場へ乗り込む。</p>
+  <p class="tagline">すべての意見は、拳で述べよ。</p>
+</section>
+
+<section id="chars">
+  <h2>キャラクター<small>CHARACTERS</small></h2>
+  <div class="chars">
+    <div class="card">
+      <div class="tag">1P SIDE / 金髪</div>
+      <h3>ナル・ブランドー</h3>
+      <p>東池袋出身の流浪の格闘家。踏み込みの速いジャブと、追い詰められてから放つ「スピニングバードキック」が持ち味。失踪した師がシャルドネに「熟成」されたと知り、大会に参加する。</p>
+      <dl>
+        <dt>スタイル</dt><dd>攻め。距離を詰めてコンボで押し切る</dd>
+        <dt>得意技</dt><dd>ジャブ → ジャブ → 膝 → ハイキック</dd>
+        <dt>切り札</dt><dd>スピニングバードキック（多段ヒット）</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <div class="tag">2P SIDE / 制服</div>
+      <h3>音有A子</h3>
+      <p>都内の高校に通う 2 年生。放課後は古武術の道場で汗を流す。ある日、親友が「熟成」されて別人になって帰ってきた。制服のまま大会に飛び込む。</p>
+      <dl>
+        <dt>スタイル</dt><dd>待ち。相手の出がかりを見切って返す</dd>
+        <dt>得意技</dt><dd>フック → アッパー、足払いでガード崩し</dd>
+        <dt>切り札</dt><dd>カウンターヒット（1.5 倍ダメージ）</dd>
+      </dl>
+    </div>
+  </div>
+  <p style="margin-top:18px;color:var(--dim)">技は両者共通の 32 種（パンチ 8、キック 12、必殺技 12）。CPU が使うときは P1 側が攻め、P2 側が待ちの性格になります。</p>
+</section>
+
+<section id="play">
+  <h2>遊び方<small>HOW TO PLAY</small></h2>
+  <h3>モード</h3>
+  <div class="modes">
+    <div class="card"><h3>1P MODE</h3><p>パッド 1 の P1 vs CPU。2 本先取、最大 3 ラウンド。</p></div>
+    <div class="card"><h3>VS MODE</h3><p>パッド 1 の P1 vs パッド 2 の P2。友達と対戦。</p></div>
+    <div class="card"><h3>CPU MODE</h3><p>CPU 同士の対戦を観戦。AI の戦略を眺める。</p></div>
+  </div>
+  <p>タイトル画面で十字キー上下でモードを選び、<kbd>START</kbd> で開始。試合中に <kbd>START</kbd>+<kbd>SELECT</kbd> でタイトルに戻ります。</p>
+
+  <h3>基本操作（バーチャファイター方式の P / K / G）</h3>
+  <div class="tables">
+    <table>
+      <tr><th>十字キー 左右</th><td>前進 / 後退</td></tr>
+      <tr><th><kbd>△</kbd> P</th><td>パンチ</td></tr>
+      <tr><th><kbd>○</kbd> K</th><td>キック</td></tr>
+      <tr><th><kbd>□</kbd> G（押しっぱなし）</th><td>ガード</td></tr>
+      <tr><th><kbd>△</kbd>+<kbd>○</kbd> 同時押し</th><td>必殺技</td></tr>
+      <tr><th>攻撃中に P / K</th><td>次の技につなぐ（最大 4 連）</td></tr>
+    </table>
+    <table>
+      <tr><th colspan="2" style="color:var(--yellow)">パンチ</th></tr>
+      <tr><th><kbd>△</kbd></th><td>ジャブ</td></tr>
+      <tr><th>前 + <kbd>△</kbd></th><td>ストレート</td></tr>
+      <tr><th>後 + <kbd>△</kbd></th><td>フック</td></tr>
+      <tr><th>下 + <kbd>△</kbd></th><td>アッパー</td></tr>
+    </table>
+    <table>
+      <tr><th colspan="2" style="color:var(--yellow)">キック</th></tr>
+      <tr><th><kbd>○</kbd></th><td>ハイキック</td></tr>
+      <tr><th>前 + <kbd>○</kbd></th><td>回し蹴り</td></tr>
+      <tr><th>後 + <kbd>○</kbd></th><td>後ろ蹴り</td></tr>
+      <tr><th>下 + <kbd>○</kbd></th><td>足払い（下段、ガード不能）</td></tr>
+    </table>
+    <table>
+      <tr><th colspan="2" style="color:var(--yellow)">必殺技（P + K）</th></tr>
+      <tr><th><kbd>△</kbd>+<kbd>○</kbd></th><td>スピニングバードキック</td></tr>
+      <tr><th>前 + <kbd>△</kbd>+<kbd>○</kbd></th><td>ドラゴンキック</td></tr>
+      <tr><th>後 + <kbd>△</kbd>+<kbd>○</kbd></th><td>ハリケーン</td></tr>
+      <tr><th>下 + <kbd>△</kbd>+<kbd>○</kbd></th><td>スライディング</td></tr>
+    </table>
+  </div>
+  <p style="color:var(--dim)">必殺技は使うと 4 秒ほど再使用できません。その間に P + K を押すとパンチになります。</p>
+</section>
+
+<section id="system">
+  <h2>バトルシステム<small>SYSTEM</small></h2>
+  <div class="tables">
+    <table>
+      <tr><th>ガード</th><td>中段・上段を削りダメージに抑える。下段技（足払い、スライディング）とダウン技はガードを抜ける。削りで KO にはならない。</td></tr>
+      <tr><th>カウンターヒット</th><td>相手の攻撃中に当てると 1.5 倍ダメージ、COUNTER! 表示。</td></tr>
+      <tr><th>リングアウト</th><td>ステージの端まで吹き飛ばすとその場で勝ち。</td></tr>
+    </table>
+    <table>
+      <tr><th>ラウンド</th><td>60 秒。時間切れは残り体力の多い方が勝ち。2 本先取。</td></tr>
+      <tr><th>PERFECT</th><td>無傷で勝つと表示。</td></tr>
+      <tr><th>連続ヒット</th><td>のけぞり中に当て続けると HITS 数が表示される。</td></tr>
+    </table>
+  </div>
+  <h3>初心者のコツ</h3>
+  <ul class="tips">
+    <li>相手が技を振った直後の硬直に、ジャブ → ジャブ → 膝 → ハイキックを差し込む。</li>
+    <li>ガードで固まる相手には下 + <kbd>○</kbd> の足払い。ガードを抜けて転ばせられる。</li>
+    <li>端に追い詰めたら大技で吹き飛ばしてリングアウトを狙う。</li>
+    <li>体力が減ったら少し下がって距離を取り、突っ込んできたところにカウンターを合わせる。</li>
+  </ul>
+</section>
+
+<section id="issues">
+  <h2>御意見の書き方<small>HOW TO SEND FEEDBACK</small></h2>
+  <p>このゲームは <b>GitHub Issues（御意見フォーム）に書かれた要望やバグ報告を AI が読んで実装し、CI/CD が自動でビルドしてリリースする</b>ことで育ちます。遊んで気づいたことは何でも歓迎です。</p>
+  <ol class="steps">
+    <li><a href="https://github.com/GOROman/ps1-null-fighter/issues/new/choose">御意見フォーム</a>を開き、「要望」か「バグ報告」を選ぶ（GitHub アカウントが必要です）。</li>
+    <li>フォームの項目を埋める。カテゴリ、内容、理由、関係するモードなど。</li>
+    <li>送信すると Issue になります。実装されると Issue にコメントが付き、<a href="https://github.com/GOROman/ps1-null-fighter/releases/latest">最新版</a>に反映されます。</li>
+  </ol>
+  <div class="issue-grid">
+    <div class="good"><b>伝わりやすい書き方</b><br>「前 + P + K でサマーソルトキックが欲しい。今は対空技がなくてジャンプキックに困るから」<br>「1P MODE の 2 ラウンド目、リングアウトした瞬間に相手が起き上がって二重に KO 表示が出る。毎回起きる。DuckStation 0.1-7000」</div>
+    <div class="bad"><b>伝わりにくい書き方</b><br>「もっと面白くして」<br>「バグってる」<br>どこで、何をしたら、どうなったか、本当はどうなってほしいかがあると AI が動けます。</div>
+  </div>
+  <h3>ネタの例</h3>
+  <ul class="tips">
+    <li>新しい技やコンボ、必殺技のコマンド変更</li>
+    <li>ダメージや技の出の速さなどバランスの感想</li>
+    <li>CPU の強さ、難易度選択、キャラ追加、ステージ</li>
+    <li>表示や操作の改善、エフェクト、サウンド</li>
+    <li>ストーリーやキャラ設定への意見も歓迎</li>
+  </ul>
+</section>
+
+<section id="download">
+  <h2>ダウンロード<small>DOWNLOAD</small></h2>
+  <p>zip の中身は CD イメージ（<code>nullfighter.cue</code> / <code>nullfighter.bin</code>）、操作説明（<code>MANUAL.md</code>）、変更履歴（<code>CHANGELOG.md</code>）です。</p>
+  <div class="tables">
+    <table>
+      <tr><th>エミュレータ</th><td>DuckStation などで <code>nullfighter.cue</code> を開く。cue と bin は同じフォルダに置く。</td></tr>
+      <tr><th>実機</th><td>ImgBurn 等で cue を指定して CD-R に焼く。改造 / バックアップ起動ができる本体が必要。</td></tr>
+    </table>
+    <table>
+      <tr><th>最新版</th><td>main ブランチの最新ビルドを <code>latest</code> プレリリースとして常に更新。</td></tr>
+      <tr><th>安定版</th><td><code>v*</code> タグのリリース。</td></tr>
+    </table>
+  </div>
+  <div class="cta">
+    <a class="btn" href="https://github.com/GOROman/ps1-null-fighter/releases/latest">最新版をダウンロード</a>
+    <a class="btn alt" href="https://github.com/GOROman/ps1-null-fighter/releases">すべてのリリース</a>
+    <a class="btn alt" href="https://github.com/GOROman/ps1-null-fighter">GitHub リポジトリ</a>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  御意見有用 &copy; 2026 東池袋ナル ｜ コードは Claude Code、素材は ChatGPT / Tripo3D ｜ 旧称 NULL FIGHTER<br>
+  <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/docs/遊び方.md">遊び方ガイド</a> ・
+  <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/docs/TECHNICAL.md">技術ドキュメント</a> ・
+  <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/CHANGELOG.md">変更履歴</a>
+</footer>
+
+</body>
+</html>
