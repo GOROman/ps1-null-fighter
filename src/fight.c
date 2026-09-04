@@ -13,7 +13,7 @@
 #define CENTERY     (SCREEN_YRES >> 1)
 
 #define ROUND_FRAMES   (60 * 60)      /* 60 s */
-#define START_X        1500           /* fighters start at +-START_X */
+#define START_X        3000           /* fighters start at +-START_X (2x wider stage) */
 #define APPROACH_STOP  1200
 #define MIN_DIST       1000
 #define RUN_SPEED      44
@@ -21,6 +21,8 @@
 #define PLAYER_SPEED   30             /* pad controlled walk */
 #define BACKSTEP_SPEED 48
 #define FLOOR_OTZ      (OT_LEN - 1)
+#define STAGE_EDGE     8400           /* ring out boundary (2x original 4200) */
+#define STAGE_CLAMP    8800           /* hard clamp (2x original 4400) */
 
 /* ---------------------------------------------------------------------- */
 /* 5x7 bitmap font for the big announcements (0-9 A-Z ! .)                  */
@@ -735,7 +737,7 @@ static void fighter_ai(Fight *fg, int i) {
 		break;
 	}
 	/* ring out: knocked over the stage edge while flying */
-	if ((f->x < -4200 || f->x > 4200) && f->kb && (f->state == FS_HIT || f->state == FS_DOWN) &&
+	if ((f->x < -STAGE_EDGE || f->x > STAGE_EDGE) && f->kb && (f->state == FS_HIT || f->state == FS_DOWN) &&
 	    fg->phase == FP_FIGHTING) {
 		f->state = FS_KO;
 		f->hp = 0;
@@ -743,8 +745,8 @@ static void fighter_ai(Fight *fg, int i) {
 		set_anim(f, f->anim_fall);
 		f->kb = 0;
 	}
-	if (f->x < -4400) f->x = -4400;
-	if (f->x >  4400) f->x =  4400;
+	if (f->x < -STAGE_CLAMP) f->x = -STAGE_CLAMP;
+	if (f->x >  STAGE_CLAMP) f->x =  STAGE_CLAMP;
 }
 
 /* ---- camera ------------------------------------------------------------ */
@@ -765,7 +767,7 @@ static void auto_camera(Fight *fg, Camera *cam) {
 	case FP_ROUND:
 		/* one full lap around the stage, low and close */
 		want_yaw = (fg->phase_t * 4096) / 150;
-		want_dist = 4600;
+		want_dist = 5600;
 		want_pitch = 70;
 		want_t = vec(mid, -2200, 0);
 		fg->cam_yaw = want_yaw & 4095;                    /* no lag: keep the lap smooth */
@@ -780,10 +782,16 @@ static void auto_camera(Fight *fg, Camera *cam) {
 		break;
 	}
 	default:
+		/* VF-style distance-based camera: close when fighting, pull back when far apart */
 		want_yaw = (fsin(fg->t * 2) * 380) >> 12;        /* gentle sway, ~20 s period */
-		want_dist = 3400 + sep;
-		if (want_dist < 4600) want_dist = 4600;
-		if (want_dist > 7500) want_dist = 7500;
+		/* close range (<2500): tight camera for fighting feel;
+		   far range: pull back so both fighters are visible on the wider stage */
+		if (sep < 2500) {
+			want_dist = 4600;                            /* close combat: original feel */
+		} else {
+			want_dist = 3200 + sep;                      /* scale with separation */
+			if (want_dist > 12000) want_dist = 12000;    /* max pullback for 2x stage */
+		}
 		want_pitch = 140 + ((fsin(fg->t * 3 + 1024) * 40) >> 12);
 		want_t = vec(mid, -2000, 0);
 		break;

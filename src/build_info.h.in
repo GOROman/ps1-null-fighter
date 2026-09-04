@@ -1,0 +1,9 @@
+/* Auto-generated build metadata - do not edit */
+#ifndef BUILD_INFO_H
+#define BUILD_INFO_H
+
+#define BUILD_VERSION  "@BUILD_VERSION@"
+#define BUILD_COMMIT   "@BUILD_COMMIT@"
+#define BUILD_DATE     "@BUILD_DATE@"
+
+#endif
