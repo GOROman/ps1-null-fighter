@@ -8,7 +8,7 @@ project(
 )
 
 # Build metadata for the title screen banner
-# git describe for version, short SHA for commit, UTC timestamp for date
+# git describe for version, short SHA for commit, JST timestamp for date
 # Falls back to CMake variables / env vars (for CI) when git is unavailable
 execute_process(
 	COMMAND git describe --tags --always --dirty
@@ -26,7 +26,17 @@ execute_process(
 	ERROR_QUIET
 	RESULT_VARIABLE GIT_COMMIT_RESULT
 )
-string(TIMESTAMP BUILD_TIMESTAMP "%Y-%m-%d %H:%M" UTC)
+# JST (Asia/Tokyo, UTC+9) timestamp via date command
+execute_process(
+	COMMAND ${CMAKE_COMMAND} -E env TZ=Asia/Tokyo date "+%Y-%m-%d %H:%M"
+	OUTPUT_VARIABLE BUILD_TIMESTAMP
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+	ERROR_QUIET
+	RESULT_VARIABLE DATE_RESULT
+)
+if(NOT DATE_RESULT EQUAL 0 OR NOT BUILD_TIMESTAMP)
+	string(TIMESTAMP BUILD_TIMESTAMP "%Y-%m-%d %H:%M")
+endif()
 
 # Use git values if available, otherwise fallback
 if(GIT_VERSION_RESULT EQUAL 0 AND GIT_VERSION)
