@@ -1,0 +1,86 @@
+# Build the PlayStation CD image (build/nullfighter.cue + .bin) on every push
+# and pull request with PSn00bSDK v0.24, and attach it to a release on tags.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  SDK_VERSION: "0.24"
+  GCC_ZIP: gcc-mipsel-none-elf-12.3.0-linux.zip
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write          # release upload on tags
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python deps for the asset pipeline
+        run: pip install numpy pillow xatlas
+
+      - name: Cache PSn00bSDK + toolchain
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/psn00bsdk
+          key: psn00bsdk-${{ env.SDK_VERSION }}-${{ env.GCC_ZIP }}
+
+      - name: Download PSn00bSDK + toolchain
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          mkdir -p ~/psn00bsdk && cd ~/psn00bsdk
+          base=https://github.com/Lameguy64/PSn00bSDK/releases/download/v${SDK_VERSION}
+          curl -sSL -o sdk.zip "$base/PSn00bSDK-${SDK_VERSION}-Linux.zip"
+          curl -sSL -o gcc.zip "$base/${GCC_ZIP}"
+          unzip -q sdk.zip -d sdk
+          unzip -q gcc.zip -d gcc
+          rm sdk.zip gcc.zip
+          chmod -R a+rx sdk gcc
+
+      - name: Locate the SDK
+        run: |
+          set -eux
+          sdk_cmake=$(find ~/psn00bsdk/sdk -name sdk.cmake -path '*libpsn00b/cmake/*' | head -1)
+          gcc_bin=$(dirname "$(find ~/psn00bsdk/gcc -name mipsel-none-elf-gcc -type f | head -1)")
+          sdk_bin=$(dirname "$(find ~/psn00bsdk/sdk -name mkpsxiso -type f | head -1)")
+          echo "PSN00BSDK_LIBS=$(dirname "$(dirname "$sdk_cmake")")" >> "$GITHUB_ENV"
+          echo "$gcc_bin" >> "$GITHUB_PATH"
+          echo "$sdk_bin" >> "$GITHUB_PATH"
+
+      - name: Configure
+        run: cmake --preset default .
+
+      - name: Build
+        run: cmake --build ./build --verbose
+
+      - name: Collect
+        run: |
+          set -eux
+          mkdir -p dist
+          cp build/nullfighter.bin build/nullfighter.cue build/nullfighter.exe build/nullfighter.elf dist/
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nullfighter-${{ github.sha }}
+          path: dist/
+
+      - name: Release (tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -eux
+          (cd dist && zip -9 ../nullfighter-${GITHUB_REF_NAME}.zip nullfighter.bin nullfighter.cue nullfighter.exe)
+          gh release create "$GITHUB_REF_NAME" nullfighter-${GITHUB_REF_NAME}.zip --title "NULL FIGHTER $GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -23,6 +23,8 @@ cmake --preset default .      # PSN00BSDK_LIBS が設定されていること
 cmake --build ./build         # build/nullfighter.cue ができる
 ```
 
+GitHub Actions（`.github/workflows/build.yml`）が push ごとに Linux 上で PSn00bSDK v0.24 を取得してビルドし、`nullfighter.cue` / `.bin` を Actions の成果物として保存します。`v*` タグを push すると Release に zip が添付されます。
+
 このリポジトリでは `build.sh` がリモートのビルドマシン（`BUILD_HOST`、既定 `mac-studio.local`）に rsync してビルドし、CD イメージ（`build/nullfighter.cue`）を `build/` に持ち帰ります。
 
 ```sh
