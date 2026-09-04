@@ -2,6 +2,8 @@
 
 ![御意見有用](docs/screenshot.png)
 
+![ROUND 1](docs/screenshot-fight.png)
+
 初代 PlayStation 向けの 3D 対戦格闘ゲーム（兼キャラクタービューア）。開発は東池袋ナル。PSn00bSDK で書かれていて、60fps で動きます。
 
 旧称 NULL FIGHTER。ソースやビルド成果物の名前（`nullfighter.cue` など）には旧称が残っています。
