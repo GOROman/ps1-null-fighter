@@ -12,7 +12,7 @@
 #include "render.h"
 #include "camera.h"
 
-enum { FS_IDLE, FS_APPROACH, FS_WALK, FS_RETREAT, FS_BACKSTEP, FS_ATTACK, FS_HIT, FS_DOWN, FS_KO, FS_WIN, FS_GUARD };
+enum { FS_IDLE, FS_APPROACH, FS_WALK, FS_RETREAT, FS_BACKSTEP, FS_ATTACK, FS_HIT, FS_DOWN, FS_KO, FS_WIN, FS_GUARD, FS_DOGEZA };
 enum { CAT_PUNCH = 0, CAT_KICK, CAT_SPECIAL };
 enum { LIMB_HAND = 0, LIMB_FOOT, LIMB_BODY };
 enum { H_ANY = 0, H_HIGH, H_LOW };
@@ -47,6 +47,9 @@ typedef struct {
 	int hadouken_cd;           /* hadouken cooldown (frames) */
 	uint16_t cmd_hist[8];      /* d-pad history for command inputs (circular buffer) */
 	int cmd_idx;               /* next index to write in cmd_hist */
+	int dogeza_t;              /* dogeza animation frame counter */
+	int dogeza_hit;            /* 1 if dogeza speech bubble already hit */
+	int anim_dogeza;           /* dogeza animation index */
 } Fighter;
 
 #define MAX_FX 6
@@ -85,6 +88,9 @@ typedef struct {
 	int advice_idx;                     /* index of current advice phrase */
 	int advice_cd;                      /* frames until next advice appears */
 	Projectile proj[MAX_PROJECTILES];   /* hadouken / fireball projectiles */
+	int dogeza_bubble_t;                /* dogeza speech bubble display timer */
+	int dogeza_bubble_side;             /* which fighter is doing dogeza (0 or 1) */
+	int dogeza_bubble_x, dogeza_bubble_y; /* screen position of the speech bubble */
 } Fight;
 
 void fight_init(Fight *fg, const Model *m0, Renderer *r0, const Model *m1, Renderer *r1);

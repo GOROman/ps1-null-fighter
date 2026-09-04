@@ -33,6 +33,17 @@
 #define HADOUKEN_HITBOX   400         /* collision radius */
 #define HADOUKEN_MOVE_IDX 32          /* index in MOVES table */
 
+/* dogeza (prostration) - desperation move when HP <= 30% */
+#define DOGEZA_HP_THRESHOLD 30        /* can only use when HP <= 30% */
+#define DOGEZA_STARTUP     30         /* frames before speech bubble appears */
+#define DOGEZA_ACTIVE      60         /* frames the speech bubble is active */
+#define DOGEZA_RECOVERY    30         /* frames after bubble disappears */
+#define DOGEZA_TOTAL       (DOGEZA_STARTUP + DOGEZA_ACTIVE + DOGEZA_RECOVERY)
+#define DOGEZA_DMG         40         /* massive damage if bubble hits */
+#define DOGEZA_KB          400        /* huge knockback */
+#define DOGEZA_HITBOX_W    80         /* speech bubble hitbox width */
+#define DOGEZA_HITBOX_H    50         /* speech bubble hitbox height */
+
 /* ---------------------------------------------------------------------- */
 /* 5x7 bitmap font for the big announcements (0-9 A-Z ! .)                  */
 /* ---------------------------------------------------------------------- */
@@ -162,6 +173,7 @@ static void fighter_setup(Fighter *f, const Model *m, Renderer *r) {
 	f->anim_jump = find_anim_or(m, "jump", f->anim_idle);
 	f->anim_fall = find_anim_or(m, "fall", f->anim_ko);
 	f->anim_guard = find_anim_or(m, "guard", f->anim_idle);
+	f->anim_dogeza = find_anim_or(m, "defeat", f->anim_idle);  /* use defeat as dogeza pose */
 	for (int i = 0; i < NUM_MOVES; i++)
 		f->move_anim[i] = find_anim(m, MOVES[i].clip);       /* -1: this rig lacks the clip */
 }
@@ -185,6 +197,8 @@ static void fighter_reset(Fighter *f, int side) {
 	f->hadouken_cd = 0;
 	f->cmd_idx = 0;
 	for (int i = 0; i < 8; i++) f->cmd_hist[i] = 0;
+	f->dogeza_t = 0;
+	f->dogeza_hit = 0;
 	set_anim(f, f->anim_idle);
 }
 
@@ -489,11 +503,36 @@ static int player_move(const Fighter *f, uint16_t held, int dir, int btn) {
 	return m;
 }
 
+/* start dogeza move */
+static void start_dogeza(Fight *fg, int i) {
+	Fighter *f = &fg->f[i];
+	f->state = FS_DOGEZA;
+	f->dogeza_t = 0;
+	f->dogeza_hit = 0;
+	set_anim(f, f->anim_dogeza);
+	f->pose.speed = 384;
+}
+
+/* check for dogeza command: down + P + K + G simultaneously */
+static int check_dogeza_cmd(uint16_t held, uint16_t pressed) {
+	int down = held & PAD_DOWN;
+	int all_buttons = (held & BTN_P) && (held & BTN_K) && (held & BTN_G);
+	int any_pressed = (pressed & BTN_P) || (pressed & BTN_K) || (pressed & BTN_G);
+	return down && all_buttons && any_pressed;
+}
+
 /* attack / guard input from a neutral state; 1 when an action started */
 static int player_act(Fight *fg, int i, int dir) {
 	Fighter *f = &fg->f[i];
 	uint16_t held = f->in_held, pressed = f->in_pressed;
 	f->in_pressed = 0;
+
+	/* dogeza command: down + P + K + G when HP <= 30% */
+	if (f->hp <= DOGEZA_HP_THRESHOLD && check_dogeza_cmd(held, pressed)) {
+		start_dogeza(fg, i);
+		return 1;
+	}
+
 	int btn = attack_button(pressed, held);
 	if (btn) {
 		/* check for 236+P hadouken command (quarter-circle forward + punch) */
@@ -586,6 +625,10 @@ static void fighter_ai(Fight *fg, int i) {
 			int m = (r < 50) ? move_index("sbk") : pick_move(fg, f, CAT_SPECIAL, d);
 			if (m < 0 || f->move_anim[m] < 0) m = pick_move(fg, f, CAT_KICK, 0);
 			start_single(fg, i, m);
+		} else if (f->hp <= DOGEZA_HP_THRESHOLD && f->hp < o->hp && d <= 1600 && d >= 600 &&
+		           o->state != FS_ATTACK && r < 8) {
+			/* DOGEZA: desperation move when losing badly (rare: ~8% chance) */
+			start_dogeza(fg, i);
 		} else if (f->hp < 35 && f->hp < o->hp && f->special_cd <= 0 && d <= 2400 &&
 		           o->state != FS_ATTACK) {
 			/* losing: back off a few steps, then the special covers the distance */
@@ -783,11 +826,13 @@ static void fighter_ai(Fight *fg, int i) {
 			if ((limb_hit || range_hit) && o->state != FS_KO && o->state != FS_DOWN) {
 				f->hit_done = 1;
 				f->rehit_at = pct + mv->rehit;
+				/* DOGEZA RISK: instant death if hit during dogeza */
+				int dogeza_death = (o->state == FS_DOGEZA);
 				/* standing guard stops mid / high attacks (chip damage);
 				 * low attacks and floor-takers go through */
 				int guarded = o->state == FS_GUARD && mv->height != H_LOW && !(mv->flags & MF_KNOCKDOWN);
 				int counter = o->state == FS_ATTACK;             /* hit them during their swing */
-				int dmg = guarded ? (mv->dmg + 3) / 4 : counter ? (mv->dmg * 3) / 2 : mv->dmg;
+				int dmg = dogeza_death ? 999 : guarded ? (mv->dmg + 3) / 4 : counter ? (mv->dmg * 3) / 2 : mv->dmg;
 				if (guarded && o->hp - dmg <= 0) dmg = o->hp - 1;   /* no chip KO */
 				o->hp -= dmg;
 				if (counter && !guarded) { fg->counter_t = 50; fg->counter_side = 1 - i; }
@@ -879,6 +924,26 @@ static void fighter_ai(Fight *fg, int i) {
 		}
 		break;
 	case FS_WIN:
+		break;
+	case FS_DOGEZA: {
+		f->dogeza_t += g_step;
+		/* hold the pose (slow down animation after first loop) */
+		if (f->pose.loops > 0) {
+			f->pose.speed = 0;
+			f->pose.playing = 0;
+		}
+		/* speech bubble appears after startup */
+		if (f->dogeza_t == DOGEZA_STARTUP) {
+			fg->dogeza_bubble_t = DOGEZA_ACTIVE;
+			fg->dogeza_bubble_side = i;
+		}
+		/* check if dogeza is finished */
+		if (f->dogeza_t >= DOGEZA_TOTAL) {
+			f->state = FS_IDLE;
+			f->cooldown = 30;
+			set_anim(f, f->anim_idle);
+			f->dogeza_t = 0;
+		}
 		break;
 	}
 	/* ring out: knocked over the stage edge while flying */
@@ -1160,6 +1225,52 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 		ApplyMatrixLV(&m4, &d, &local);
 		ik_look_at_point(f->model, &f->pose, local);
 	}
+
+	/* ---- dogeza speech bubble hit detection ----------------------------- */
+	if (fg->dogeza_bubble_t > 0) {
+		fg->dogeza_bubble_t -= g_step;
+		Fighter *f = &fg->f[fg->dogeza_bubble_side];
+		Fighter *o = &fg->f[1 - fg->dogeza_bubble_side];
+
+		if (!f->dogeza_hit && o->state != FS_KO && o->state != FS_DOWN) {
+			int dir = (o->x > f->x) ? 1 : -1;
+			int dx = (o->x - f->x) * dir;
+			int bubble_range = 1200;
+			if (dx < bubble_range && dx > 200) {
+				f->dogeza_hit = 1;
+				int dmg = DOGEZA_DMG;
+				o->hp -= dmg;
+				fg->shake = 20;
+				fg->hitstop = 12;
+				fg->name_t = 60;
+				fg->name_move = -1;
+				fg->name_side = fg->dogeza_bubble_side;
+
+				for (int k = 0; k < MAX_FX; k++) {
+					if (fg->fx[k].active) continue;
+					fg->fx[k].active = 1;
+					fg->fx[k].t = 0;
+					fg->fx[k].x = (f->x + o->x) / 2;
+					fg->fx[k].y = -2000;
+					fg->fx[k].z = 0;
+					break;
+				}
+
+				if (o->hp <= 0) {
+					o->hp = 0;
+					o->state = FS_KO;
+					set_anim(o, o->anim_ko);
+				} else {
+					o->state = FS_DOWN;
+					o->down_phase = 0;
+					set_anim(o, o->anim_fall);
+					o->pose.speed = 384;
+					o->kb = dir * DOGEZA_KB;
+				}
+			}
+		}
+	}
+
 	auto_camera(fg, cam);
 }
 
@@ -1265,12 +1376,17 @@ static char *draw_hud(Fight *fg, uint32_t *ot, char *nextpri) {
 	t = (TILE *)nextpri;
 	/* life bars: 130 px wide, 12 px thick; yellow = remaining, red = lost.
 	 * Bucket 0 draws the newest primitive first, so the fill goes in before
-	 * the red background */
+	 * the red background. Orange when HP <= 30% (pinch mode). */
 	for (int i = 0; i < 2; i++) {
 		int x0 = i ? SCREEN_XRES - 16 - 120 : 16;
 		int w = (fg->f[i].hp_disp * 120) / 100;
+		int pinch = fg->f[i].hp <= DOGEZA_HP_THRESHOLD;
 		if (w > 0) {
-			setTile(t); setRGB0(t, 255, 220, 40);
+			if (pinch) {
+				setTile(t); setRGB0(t, 255, 140, 40);
+			} else {
+				setTile(t); setRGB0(t, 255, 220, 40);
+			}
 			setXY0(t, i ? x0 + 120 - w : x0, 14); setWH(t, w, 12); addPrim(ot, t); t++;
 		}
 		setTile(t); setRGB0(t, 200, 30, 30); setXY0(t, x0, 14); setWH(t, 120, 12); addPrim(ot, t); t++;
@@ -1323,15 +1439,29 @@ static char *draw_hud(Fight *fg, uint32_t *ot, char *nextpri) {
 	/* move name popup, on the side of the fighter using it */
 	if (fg->name_t > 0) {
 		char nm[20];
-		const char *src = MOVES[fg->name_move].name;
-		int k = 0;
-		for (; src[k] && k < 19; k++) {
-			char c = src[k];
-			nm[k] = c == '_' ? ' ' : (c >= 'a' && c <= 'z') ? c - 32 : c;
+		if (fg->name_move < 0) {
+			nm[0] = 'D'; nm[1] = 'O'; nm[2] = 'G'; nm[3] = 'E'; nm[4] = 'Z'; nm[5] = 'A'; nm[6] = '!'; nm[7] = 0;
+		} else {
+			const char *src = MOVES[fg->name_move].name;
+			int k = 0;
+			for (; src[k] && k < 19; k++) {
+				char c = src[k];
+				nm[k] = c == '_' ? ' ' : (c >= 'a' && c <= 'z') ? c - 32 : c;
+			}
+			nm[k] = 0;
 		}
-		nm[k] = 0;
 		nextpri = fight_text(nm, fg->name_side ? SCREEN_XRES - 84 : 84, 178, 2,
 		                   255, 255, fg->name_t > 40 ? 255 : 120, ot, nextpri);
+	}
+	/* dogeza speech bubble: SUMIMASEN! appears above the fighter's head */
+	if (fg->dogeza_bubble_t > 0) {
+		int side = fg->dogeza_bubble_side;
+		int cx = side ? SCREEN_XRES - 80 : 80;
+		int flash = (fg->dogeza_bubble_t / 4) & 1;
+		int r = flash ? 255 : 220;
+		int g = flash ? 100 : 60;
+		int b = flash ? 100 : 60;
+		nextpri = fight_text("SUMIMASEN!", cx, 140, 2, r, g, b, ot, nextpri);
 	}
 	/* advice popup ("goiken"): appears at random intervals at top center */
 	if (fg->advice_t > 0) {
