@@ -605,7 +605,9 @@ int main(void) {
 				uint16_t pressed2 = (~btn2) & prev_btn2;
 				prev_btn2 = btn2;
 				if (!(held & PAD_SELECT)) fight_input(&fight, 0, held, pressed);
-				fight_input(&fight, 1, ~btn2, pressed2);
+				/* training mode: P2 receives no input (static dummy) */
+				if (game_mode != MODE_TRAINING)
+					fight_input(&fight, 1, ~btn2, pressed2);
 			}
 			prof_mark(PROF_INPUT);
 			fight_update(&fight, &cam, fps >= 45 ? 60 : 30);

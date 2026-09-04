@@ -614,6 +614,8 @@ static void fighter_ai(Fight *fg, int i) {
 	case FS_IDLE: {
 		if (f->cooldown > 0) { f->cooldown--; break; }
 		if (o->state == FS_KO) break;
+		/* training mode: P2 is a static dummy, no AI, no input */
+		if (fg->training && i == 1) break;
 		if (f->human) {
 			if (!player_act(fg, i, dir)) player_walk(fg, i, dir, d);
 			break;
