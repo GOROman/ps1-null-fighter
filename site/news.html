@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ニュース | 御意見有用</title>
+<meta name="description" content="御意見有用の最新ニュース。リリース情報、アップデート、イベント。">
+<link rel="icon" href="favicon.ico" sizes="16x16 32x48 48x48">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@700;800&family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Anton&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0a0a0a; --paper: #f2ede3; --red: #c8102e; --red2: #8c0a1e; --gold: #e2b84a; --gold2: #8a6a1e;
+    --white: #fff; --grey: #8a8a8a;
+    --mincho: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif;
+    --gothic: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    --latin: "Anton", Impact, "Arial Narrow", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--ink); color: var(--white); font-family: var(--gothic); line-height: 1.8; font-weight: 500; }
+  a { color: inherit; }
+  img { max-width: 100%; display: block; }
+
+  .halftone { position: relative; isolation: isolate; }
+  .halftone::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .55;
+    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.09) 1px, transparent 1.3px);
+    background-size: 5px 5px; }
+
+  nav.top { position: sticky; top: 0; z-index: 10; background: rgba(10,10,10,.92); border-bottom: 1px solid #333; }
+  nav.top ul { list-style: none; margin: 0 auto; padding: 0 16px; max-width: 1180px; display: flex; flex-wrap: wrap; gap: 0 4px; }
+  nav.top a { display: block; padding: 10px 12px; text-decoration: none; font-size: 13px; letter-spacing: .2em; font-weight: 700; }
+  nav.top a:hover { color: var(--gold); }
+  nav.top li.cta { margin-left: auto; }
+  nav.top li.cta a { color: var(--gold); }
+
+  section { padding: 72px 24px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  .page-header { padding: 32px 24px; background: linear-gradient(135deg, #1a0a0e, #0a0a0a); border-bottom: 2px solid var(--gold2); }
+  .page-header .wrap { display: flex; align-items: center; gap: 16px; }
+  .page-header .back { color: var(--gold); text-decoration: none; font-size: 14px; letter-spacing: .1em; }
+  .page-header .back:hover { text-decoration: underline; }
+  .page-header h1 { margin: 0; font-family: var(--mincho); font-weight: 800; font-size: clamp(28px, 4vw, 42px); letter-spacing: .08em; }
+  .page-header .en { font-family: var(--latin); letter-spacing: .3em; color: var(--red); font-size: 16px; margin-left: auto; }
+
+  .news-section { padding: 48px 24px 72px; }
+  .news-section .wrap { max-width: 900px; }
+
+  .stats-box { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 48px; padding: 24px; background: linear-gradient(135deg, #1a1408, #0a0a0a); border: 2px solid var(--gold2); }
+  .stat { text-align: center; }
+  .stat .num { font-family: var(--latin); font-size: 48px; color: var(--gold); line-height: 1; }
+  .stat .num.red { color: var(--red); }
+  .stat .num.green { color: #2a8a4a; }
+  .stat .label { font-size: 13px; color: var(--grey); letter-spacing: .15em; margin-top: 4px; }
+  .stats-box .api-note { grid-column: 1 / -1; font-size: 11px; color: var(--grey); text-align: center; margin-top: 8px; }
+
+  .news-list { list-style: none; padding: 0; margin: 0; }
+  .news-item { border-bottom: 1px solid #222; padding: 24px 0; }
+  .news-item:first-child { padding-top: 0; }
+  .news-item .date { font-family: var(--latin); font-size: 14px; color: var(--gold); letter-spacing: .1em; }
+  .news-item .tag { display: inline-block; background: var(--red); color: var(--white); font-size: 11px; padding: 2px 8px; margin-left: 10px; letter-spacing: .15em; font-weight: 700; vertical-align: middle; }
+  .news-item .tag.update { background: #2a5a8a; }
+  .news-item .tag.site { background: #6a4a8a; }
+  .news-item .tag.release { background: var(--gold2); color: var(--ink); }
+  .news-item h3 { margin: 8px 0 6px; font-family: var(--mincho); font-weight: 800; font-size: 22px; letter-spacing: .06em; }
+  .news-item p { margin: 0; font-size: 15px; color: #ccc; }
+  .news-item a { color: var(--gold); }
+
+  .feedback-cta { margin-top: 48px; padding: 28px; background: var(--red); text-align: center; }
+  .feedback-cta p { margin: 0 0 16px; font-family: var(--mincho); font-weight: 800; font-size: 20px; letter-spacing: .1em; }
+  .feedback-cta .btn { display: inline-block; padding: 12px 28px; background: var(--ink); color: var(--white); text-decoration: none; font-weight: 900; letter-spacing: .2em; }
+  .feedback-cta .btn:hover { background: #222; }
+
+  footer { padding: 30px 24px 50px; font-size: 11px; color: var(--grey); letter-spacing: .06em; border-top: 1px solid #222; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+  footer a { color: var(--grey); }
+
+  @media (max-width: 560px) {
+    .page-header .wrap { flex-wrap: wrap; }
+    .page-header .en { margin-left: 0; width: 100%; }
+    .stats-box { grid-template-columns: 1fr; }
+    .stat .num { font-size: 36px; }
+    section { padding: 48px 18px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="top"><ul>
+  <li><a href="index.html">トップ</a></li>
+  <li><a href="news.html">ニュース</a></li>
+  <li><a href="changelog.html">更新履歴</a></li>
+  <li><a href="index.html#campaign">御意見募集</a></li>
+  <li><a href="index.html#download">入手方法</a></li>
+  <li class="cta"><a href="https://github.com/GOROman/ps1-null-fighter">GitHub</a></li>
+</ul></nav>
+
+<header class="page-header halftone">
+  <div class="wrap">
+    <a href="index.html" class="back">← トップへ戻る</a>
+    <h1>ニュース</h1>
+    <span class="en">NEWS</span>
+  </div>
+</header>
+
+<section class="news-section halftone">
+  <div class="wrap">
+
+    <div class="stats-box">
+      <div class="stat">
+        <div class="num" id="stat-open">-</div>
+        <div class="label">要望受付中</div>
+      </div>
+      <div class="stat">
+        <div class="num green" id="stat-done">-</div>
+        <div class="label">採用・実装済み</div>
+      </div>
+      <div class="stat">
+        <div class="num red" id="stat-rejected">-</div>
+        <div class="label">却下</div>
+      </div>
+      <p class="api-note" id="api-note">GitHub Issues から取得中...</p>
+    </div>
+
+    <ul class="news-list">
+      <li class="news-item">
+        <span class="date">2026.09.04</span><span class="tag site">サイト</span>
+        <h3>公式サイトリニューアル</h3>
+        <p>ニュースページと更新履歴ページを追加しました。御意見の集計状況もリアルタイムで表示します。</p>
+      </li>
+      <li class="news-item">
+        <span class="date">2026.09.04</span><span class="tag update">機能追加</span>
+        <h3>波動拳（飛び道具）を実装</h3>
+        <p>控えめなバランスの飛び道具「波動拳」を追加しました。236+P（↓↘→+P）で発動。<a href="https://github.com/GOROman/ps1-null-fighter/pull/13">PR #13</a>（<a href="https://github.com/GOROman/ps1-null-fighter/issues/4">Issue #4</a>）の要望を反映。</p>
+      </li>
+      <li class="news-item">
+        <span class="date">2026.09.04</span><span class="tag update">機能追加</span>
+        <h3>ランダム御意見表示を実装</h3>
+        <p>戦闘中にランダムな「ご意見／アドバイス」が表示されるようになりました。<a href="https://github.com/GOROman/ps1-null-fighter/issues/6">Issue #6</a> の要望を反映。</p>
+      </li>
+      <li class="news-item">
+        <span class="date">2026.09.04</span><span class="tag update">機能追加</span>
+        <h3>ステージ拡張・カメラ改善</h3>
+        <p>ステージを2倍に拡張し、バーチャファイタースタイルの距離カメラを実装しました。<a href="https://github.com/GOROman/ps1-null-fighter/issues/7">Issue #7</a> の要望を反映。</p>
+      </li>
+      <li class="news-item">
+        <span class="date">2026.09.04</span><span class="tag release">リリース</span>
+        <h3>v0.1.0 正式リリース</h3>
+        <p>御意見有用 v0.1.0 をリリースしました。タイトル画面、32種類の技、3つのゲームモード、60fps対戦を実装。<a href="https://github.com/GOROman/ps1-null-fighter/releases/latest">ダウンロード</a></p>
+      </li>
+      <li class="news-item">
+        <span class="date">2026.09.04</span><span class="tag site">サイト</span>
+        <h3>公式サイト公開・御意見募集開始</h3>
+        <p>御意見有用の公式サイトを公開しました。GitHub Issues で御意見を募集しています。あなたの要望がゲームに反映されます。<a href="index.html#campaign">御意見フォームへ</a></p>
+      </li>
+    </ul>
+
+    <div class="feedback-cta">
+      <p>あなたの御意見が、次のバージョンになる。</p>
+      <a class="btn" href="https://github.com/GOROman/ps1-null-fighter/issues/new/choose">御意見フォームへ</a>
+    </div>
+
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>©2026 東池袋ナル ／ コード: Claude Code ／ 素材: ChatGPT, Tripo3D</span>
+    <span><a href="index.html">トップ</a> ・ <a href="changelog.html">更新履歴</a> ・ <a href="https://github.com/GOROman/ps1-null-fighter">GitHub</a></span>
+  </div>
+</footer>
+
+<script>
+(function() {
+  const REPO = 'GOROman/ps1-null-fighter';
+  const FALLBACK = { open: 1, done: 3, rejected: 2 };
+
+  async function fetchIssueStats() {
+    const apiNote = document.getElementById('api-note');
+    const statOpen = document.getElementById('stat-open');
+    const statDone = document.getElementById('stat-done');
+    const statRejected = document.getElementById('stat-rejected');
+
+    try {
+      const [openRes, closedRes] = await Promise.all([
+        fetch(`https://api.github.com/repos/${REPO}/issues?state=open&per_page=100`),
+        fetch(`https://api.github.com/repos/${REPO}/issues?state=closed&per_page=100`)
+      ]);
+
+      if (!openRes.ok || !closedRes.ok) {
+        throw new Error('API request failed');
+      }
+
+      const openIssues = await openRes.json();
+      const closedIssues = await closedRes.json();
+
+      const openCount = openIssues.filter(i => !i.pull_request).length;
+
+      let doneCount = 0;
+      let rejectedCount = 0;
+      closedIssues.forEach(issue => {
+        if (issue.pull_request) return;
+        if (issue.state_reason === 'not_planned') {
+          rejectedCount++;
+        } else {
+          doneCount++;
+        }
+      });
+
+      statOpen.textContent = openCount;
+      statDone.textContent = doneCount;
+      statRejected.textContent = rejectedCount;
+      apiNote.textContent = 'GitHub Issues API からリアルタイム取得';
+
+    } catch (e) {
+      console.warn('GitHub API fetch failed, using fallback:', e);
+      statOpen.textContent = FALLBACK.open;
+      statDone.textContent = FALLBACK.done;
+      statRejected.textContent = FALLBACK.rejected;
+      apiNote.textContent = '（APIエラーのため参考値を表示）';
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fetchIssueStats);
+  } else {
+    fetchIssueStats();
+  }
+})();
+</script>
+
+</body>
+</html>
