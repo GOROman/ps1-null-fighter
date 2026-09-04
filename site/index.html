@@ -61,7 +61,7 @@
 
   .shotwrap { position: relative; align-self: center; }
   .shotwrap .frame { position: relative; border: 6px solid #111; outline: 2px solid var(--gold); box-shadow: 0 30px 60px rgba(0,0,0,.8), 0 0 0 10px #000; transform: rotate(-2deg); background: #000; }
-  .shotwrap .frame img { image-rendering: pixelated; width: 100%; }
+  .shotwrap .frame img { image-rendering: pixelated; width: 100%; height: auto; aspect-ratio: 995 / 700; object-fit: contain; }
   .shotwrap .caption { position: absolute; right: -6px; bottom: -30px; font-size: 11px; letter-spacing: .1em; color: var(--grey); }
   .shotwrap .burst { position: absolute; left: -34px; top: -34px; width: 132px; height: 132px; display: grid; place-items: center; text-align: center;
     background: var(--red); color: var(--white); font-family: var(--gothic); font-weight: 900; font-size: 15px; line-height: 1.25;
