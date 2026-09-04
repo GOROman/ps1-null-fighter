@@ -10,21 +10,21 @@
 
 static const char *const MENU[NUM_MODES] = { "1P MODE", "VS MODE", "CPU MODE" };
 
-static char build_banner[48];
+static char build_banner[64];
 static int build_banner_init = 0;
 
 void title_init(Title *tt) {
 	tt->sel = 0;
 	tt->t = 0;
 	if (!build_banner_init) {
-		/* format: "V0.1.0 ABC1234 2026.09.04" - version commit date */
+		/* format: "V0.1.0 ABC1234 2026.09.04 10.15" - version commit date time */
 		char *p = build_banner;
 		const char *v = BUILD_VERSION;
 		const char *c = BUILD_COMMIT;
 		const char *d = BUILD_DATE;
 		/* copy version (uppercase, limit length) */
 		int n = 0;
-		while (*v && n < 12) {
+		while (*v && n < 10) {
 			char ch = *v++;
 			if (ch >= 'a' && ch <= 'z') ch -= 32;
 			if (ch == '-') ch = '.';
@@ -39,12 +39,11 @@ void title_init(Title *tt) {
 			*p++ = ch; n++;
 		}
 		*p++ = ' ';
-		/* copy date: convert "2026-09-04 10:15" to "2026.09.04" */
+		/* copy date and time: "2026-09-04 10:15" -> "2026.09.04 10.15" */
 		n = 0;
-		while (*d && n < 10) {
+		while (*d && n < 16) {
 			char ch = *d++;
-			if (ch == '-') ch = '.';
-			if (ch == ' ') break;
+			if (ch == '-' || ch == ':') ch = '.';
 			*p++ = ch; n++;
 		}
 		*p = 0;
