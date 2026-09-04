@@ -173,6 +173,13 @@
   .campaign .btn:hover { background: #222; }
   .campaign .topics { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 8px; }
   .campaign .topics span { border: 1px solid #fff; padding: 2px 12px; font-size: 13px; }
+  .campaign .stats-box { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; padding: 24px; background: rgba(0,0,0,.4); border: 2px solid rgba(255,255,255,.3); }
+  .campaign .stat { text-align: center; }
+  .campaign .stat .num { font-family: var(--latin); font-size: 48px; color: var(--white); line-height: 1; }
+  .campaign .stat .num.red { color: #ff6b6b; }
+  .campaign .stat .num.green { color: #6bff8b; }
+  .campaign .stat .label { font-size: 13px; color: rgba(255,255,255,.8); letter-spacing: .15em; margin-top: 4px; }
+  .campaign .stats-box .api-note { grid-column: 1 / -1; font-size: 11px; color: rgba(255,255,255,.6); text-align: center; margin-top: 8px; }
 
   /* download */
   .dl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; align-items: start; }
@@ -215,6 +222,8 @@
     section { padding: 48px 18px; }
     .fighter .name { font-size: 34px; }
     .subbtn { margin: 12px 0 0; }
+    .campaign .stats-box { grid-template-columns: 1fr; }
+    .campaign .stat .num { font-size: 36px; }
   }
 </style>
 </head>
@@ -266,6 +275,8 @@
   <li><a href="#system">システム</a></li>
   <li><a href="#campaign">御意見募集</a></li>
   <li><a href="#download">入手方法</a></li>
+  <li><a href="news.html">ニュース</a></li>
+  <li><a href="changelog.html">更新履歴</a></li>
   <li class="cta"><a href="https://github.com/GOROman/ps1-null-fighter">GitHub</a></li>
 </ul></nav>
 
@@ -388,6 +399,21 @@
   <div class="wrap">
     <div class="head"><h2>御意見募集</h2><span class="en">FEEDBACK CAMPAIGN</span></div>
     <p class="lead">あなたの御意見が、次のバージョンになる。</p>
+    <div class="stats-box">
+      <div class="stat">
+        <div class="num" id="stat-open">-</div>
+        <div class="label">要望受付中</div>
+      </div>
+      <div class="stat">
+        <div class="num green" id="stat-done">-</div>
+        <div class="label">採用・実装済み</div>
+      </div>
+      <div class="stat">
+        <div class="num red" id="stat-rejected">-</div>
+        <div class="label">却下</div>
+      </div>
+      <p class="api-note" id="api-note">GitHub Issues から取得中...</p>
+    </div>
     <p>このゲームは、御意見フォーム（GitHub Issues）に書かれた要望やバグ報告を AI が読んで実装し、CI/CD が自動でビルドしてリリースすることで育ちます。遊んで気づいたことは何でも歓迎です。</p>
     <div class="box">
       <div>
@@ -444,9 +470,70 @@
   <div class="wrap">
     <span>※画面写真は開発中のものです。仕様は予告なく変更される場合があります。</span>
     <span>©2026 東池袋ナル ／ コード: Claude Code ／ 素材: ChatGPT, Tripo3D ／ 旧称 NULL FIGHTER</span>
-    <span><a href="https://github.com/GOROman/ps1-null-fighter/blob/main/docs/遊び方.md">遊び方ガイド</a> ・ <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/docs/TECHNICAL.md">技術資料</a> ・ <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/CHANGELOG.md">変更履歴</a></span>
+    <span><a href="https://github.com/GOROman/ps1-null-fighter/blob/main/docs/遊び方.md">遊び方ガイド</a> ・ <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/docs/TECHNICAL.md">技術資料</a> ・ <a href="changelog.html">更新履歴</a> ・ <a href="news.html">ニュース</a></span>
   </div>
 </footer>
+
+<script>
+(function() {
+  const REPO = 'GOROman/ps1-null-fighter';
+  const FALLBACK = { open: 1, done: 3, rejected: 2 };
+
+  async function fetchIssueStats() {
+    const apiNote = document.getElementById('api-note');
+    const statOpen = document.getElementById('stat-open');
+    const statDone = document.getElementById('stat-done');
+    const statRejected = document.getElementById('stat-rejected');
+
+    if (!statOpen || !statDone || !statRejected) return;
+
+    try {
+      const [openRes, closedRes] = await Promise.all([
+        fetch(`https://api.github.com/repos/${REPO}/issues?state=open&per_page=100`),
+        fetch(`https://api.github.com/repos/${REPO}/issues?state=closed&per_page=100`)
+      ]);
+
+      if (!openRes.ok || !closedRes.ok) {
+        throw new Error('API request failed');
+      }
+
+      const openIssues = await openRes.json();
+      const closedIssues = await closedRes.json();
+
+      const openCount = openIssues.filter(i => !i.pull_request).length;
+
+      let doneCount = 0;
+      let rejectedCount = 0;
+      closedIssues.forEach(issue => {
+        if (issue.pull_request) return;
+        if (issue.state_reason === 'not_planned') {
+          rejectedCount++;
+        } else {
+          doneCount++;
+        }
+      });
+
+      statOpen.textContent = openCount;
+      statDone.textContent = doneCount;
+      statRejected.textContent = rejectedCount;
+      if (apiNote) apiNote.textContent = 'GitHub Issues API からリアルタイム取得';
+
+    } catch (e) {
+      console.warn('GitHub API fetch failed, using fallback:', e);
+      statOpen.textContent = FALLBACK.open;
+      statDone.textContent = FALLBACK.done;
+      statRejected.textContent = FALLBACK.rejected;
+      if (apiNote) apiNote.textContent = '（APIエラーのため参考値を表示）';
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fetchIssueStats);
+  } else {
+    fetchIssueStats();
+  }
+})();
+</script>
 
 </body>
 </html>

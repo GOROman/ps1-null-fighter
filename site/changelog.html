@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>更新履歴 | 御意見有用</title>
+<meta name="description" content="御意見有用の更新履歴。新機能、バグ修正、改善の記録。">
+<link rel="icon" href="favicon.ico" sizes="16x16 32x48 48x48">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@700;800&family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Anton&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0a0a0a; --paper: #f2ede3; --red: #c8102e; --red2: #8c0a1e; --gold: #e2b84a; --gold2: #8a6a1e;
+    --white: #fff; --grey: #8a8a8a;
+    --mincho: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif;
+    --gothic: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    --latin: "Anton", Impact, "Arial Narrow", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--ink); color: var(--white); font-family: var(--gothic); line-height: 1.8; font-weight: 500; }
+  a { color: inherit; }
+  img { max-width: 100%; display: block; }
+
+  .halftone { position: relative; isolation: isolate; }
+  .halftone::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .55;
+    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.09) 1px, transparent 1.3px);
+    background-size: 5px 5px; }
+
+  nav.top { position: sticky; top: 0; z-index: 10; background: rgba(10,10,10,.92); border-bottom: 1px solid #333; }
+  nav.top ul { list-style: none; margin: 0 auto; padding: 0 16px; max-width: 1180px; display: flex; flex-wrap: wrap; gap: 0 4px; }
+  nav.top a { display: block; padding: 10px 12px; text-decoration: none; font-size: 13px; letter-spacing: .2em; font-weight: 700; }
+  nav.top a:hover { color: var(--gold); }
+  nav.top li.cta { margin-left: auto; }
+  nav.top li.cta a { color: var(--gold); }
+
+  section { padding: 72px 24px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .head { display: flex; align-items: baseline; gap: 18px; margin: 0 0 30px; border-bottom: 3px double var(--gold2); padding-bottom: 10px; }
+  .head h2 { margin: 0; font-family: var(--mincho); font-weight: 800; font-size: clamp(30px, 4.4vw, 48px); letter-spacing: .1em; color: var(--white); }
+  .head .en { font-family: var(--latin); letter-spacing: .3em; color: var(--red); font-size: 18px; }
+
+  .page-header { padding: 32px 24px; background: linear-gradient(135deg, #1a0a0e, #0a0a0a); border-bottom: 2px solid var(--gold2); }
+  .page-header .wrap { display: flex; align-items: center; gap: 16px; }
+  .page-header .back { color: var(--gold); text-decoration: none; font-size: 14px; letter-spacing: .1em; }
+  .page-header .back:hover { text-decoration: underline; }
+  .page-header h1 { margin: 0; font-family: var(--mincho); font-weight: 800; font-size: clamp(28px, 4vw, 42px); letter-spacing: .08em; }
+  .page-header .en { font-family: var(--latin); letter-spacing: .3em; color: var(--red); font-size: 16px; margin-left: auto; }
+
+  .changelog { padding: 48px 24px 72px; }
+  .changelog .wrap { max-width: 900px; }
+
+  .version { margin-bottom: 48px; }
+  .version h3 { font-family: var(--latin); font-size: 28px; letter-spacing: .08em; color: var(--gold); margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px solid #333; }
+  .version h3 .tag { display: inline-block; background: var(--red); color: var(--white); font-family: var(--gothic); font-size: 12px; padding: 2px 10px; margin-left: 12px; vertical-align: middle; letter-spacing: .2em; font-weight: 700; }
+  .version ul { margin: 0; padding-left: 1.4em; }
+  .version li { margin: 8px 0; font-size: 15px; line-height: 1.7; }
+  .version li::marker { color: var(--gold); }
+
+  .unreleased h3 { color: var(--grey); }
+  .unreleased h3::after { content: "開発中"; font-family: var(--gothic); font-size: 12px; background: #333; color: var(--grey); padding: 2px 10px; margin-left: 12px; vertical-align: middle; letter-spacing: .2em; font-weight: 700; }
+
+  footer { padding: 30px 24px 50px; font-size: 11px; color: var(--grey); letter-spacing: .06em; border-top: 1px solid #222; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+  footer a { color: var(--grey); }
+
+  @media (max-width: 560px) {
+    .page-header .wrap { flex-wrap: wrap; }
+    .page-header .en { margin-left: 0; width: 100%; }
+    section { padding: 48px 18px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="top"><ul>
+  <li><a href="index.html">トップ</a></li>
+  <li><a href="news.html">ニュース</a></li>
+  <li><a href="changelog.html">更新履歴</a></li>
+  <li><a href="index.html#campaign">御意見募集</a></li>
+  <li><a href="index.html#download">入手方法</a></li>
+  <li class="cta"><a href="https://github.com/GOROman/ps1-null-fighter">GitHub</a></li>
+</ul></nav>
+
+<header class="page-header halftone">
+  <div class="wrap">
+    <a href="index.html" class="back">← トップへ戻る</a>
+    <h1>更新履歴</h1>
+    <span class="en">CHANGELOG</span>
+  </div>
+</header>
+
+<section class="changelog halftone">
+  <div class="wrap">
+
+    <div class="version unreleased">
+      <h3>Unreleased</h3>
+      <ul>
+        <li>（開発中の変更はここに追加されます）</li>
+      </ul>
+    </div>
+
+    <div class="version">
+      <h3>2026-09-04<span class="tag">最新</span></h3>
+      <ul>
+        <li>タイトル画面を追加。1P MODE（パッド 1 vs CPU）/ VS MODE（パッド 1 vs パッド 2）/ CPU MODE（観戦）</li>
+        <li>パッド操作に対応。バーチャファイター方式の △P / ○K / □G、P+K で必殺技、方向キーで派生技、攻撃中の追加入力で最大 4 連チェイン</li>
+        <li>1P / VS は 2 本先取の試合が終わるとタイトルへ戻る</li>
+        <li>格闘モード: 32 技の技テーブル（パンチ 8 / キック 12 / 必殺技 12）、ガード（削りダメージ、下段技とダウン技は抜ける）、カウンターヒット（1.5 倍）、リングアウト、PERFECT 表示、連続ヒット数表示</li>
+        <li>制服キャラ（3 人目）を P2 に</li>
+        <li>当たり判定を打撃部位（手・足・膝・頭）の実位置で判定。ハイキックは腰より上でのみヒット</li>
+        <li>攻撃中は打撃部位が相手の軸を通るように体の向きを補正</li>
+        <li>スピニングバードキック（多段ヒット）を劣勢時の切り返しとして追加</li>
+        <li>AI の戦略化: 相手の出がかり / 硬直 / のけぞり、距離帯、体力差、残り時間から行動を選ぶ。P1 は攻め、P2 は待ち</li>
+        <li>コンボ（ジャブ→ジャブ→膝→ハイキック など 12 種）、硬直キャンセルでの連係、ダウンと起き上がり</li>
+        <li>ヒットストップ、画面揺れ、ヒットエフェクト、技名表示</li>
+        <li>格闘モードを 60fps 化（対戦用に 600 三角形の軽量モデル）</li>
+        <li>GitHub Actions でビルドし、cue / bin / 操作説明 / 変更履歴を zip にしてリリース</li>
+      </ul>
+    </div>
+
+    <div class="version">
+      <h3>2026-09-03</h3>
+      <ul>
+        <li>市松模様の床、スカートのみの布ゲーム</li>
+        <li>HUD を上、デバッグ表示を下に整理</li>
+        <li>頭のカメラ LookAt に角度制限と遅れ追従</li>
+        <li>デジタルパッドでのカメラ操作（SELECT + 十字キー / △ / ×）</li>
+        <li>フレームプロファイラ（VSync 待ちを黒、1 フレーム超過は 2 列目、ピーク線）</li>
+        <li>顔のピクチャーインピクチャー</li>
+        <li>起動時は金髪キャラの走りアニメ、切り替えで制服キャラがダンス</li>
+      </ul>
+    </div>
+
+    <div class="version">
+      <h3>2026-09-02</h3>
+      <ul>
+        <li>初版: PS1 用キャラクタービューア（リジッドスキニング、自動リグ、IK モード、床グリッド）</li>
+        <li>タータン柄スカートの生成、格子の辺を歩く猿、IK ダンス、視線追従</li>
+        <li>Dancing Eyes 風の布ゲーム、手続き生成の胴体、パーツ分割メッシュ</li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>©2026 東池袋ナル ／ コード: Claude Code ／ 素材: ChatGPT, Tripo3D</span>
+    <span><a href="index.html">トップ</a> ・ <a href="news.html">ニュース</a> ・ <a href="https://github.com/GOROman/ps1-null-fighter">GitHub</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
