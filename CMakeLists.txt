@@ -91,6 +91,7 @@ psn00bsdk_add_executable(nullfighter GPREL
 	src/ik.c
 	src/walker.c
 	src/fight.c
+	src/title.c
 )
 target_include_directories(nullfighter PRIVATE src)
 target_link_libraries(nullfighter PRIVATE psxgpu psxgte psxetc psxapi)

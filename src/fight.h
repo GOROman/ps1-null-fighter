@@ -1,5 +1,5 @@
 /* Fighting game mode: two rigged characters (same animation set) fight
- * each other CPU vs CPU on the x axis, with life bars, a round timer,
+ * each other on the x axis (CPU or pad controlled), with life bars, a round timer,
  * ROUND / FIGHT / K.O. announcements, an automatic camera and a table of
  * 32 moves (tools/moves.py -> moves_table.h). */
 #ifndef FIGHT_H
@@ -41,6 +41,8 @@ typedef struct {
 	int kb;                    /* knock back velocity, decays */
 	int last_backstep, down_phase, plan_special, special_cd;
 	int move_anim[NUM_MOVES];  /* animation index per move */
+	int human;                 /* 1: driven by a pad (fight_input) instead of the AI */
+	uint16_t in_held, in_pressed;   /* pad state for this frame (fight_input) */
 	int anim_idle, anim_run, anim_hit, anim_ko, anim_win, anim_jump, anim_fall, anim_guard;
 } Fighter;
 
@@ -64,10 +66,25 @@ typedef struct {
 	int counter_t, counter_side;        /* COUNTER! popup */
 	int ringout;                        /* round ended by a ring out */
 	int name_t, name_move, name_side;   /* move name popup */
+	int demo;                           /* title screen backdrop: no HUD */
+	int match_over;                     /* set when a best-of-3 match has ended */
 } Fight;
 
 void fight_init(Fight *fg, const Model *m0, Renderer *r0, const Model *m1, Renderer *r1);
+/* which fighters are pad controlled (call after fight_init) */
+void fight_set_players(Fight *fg, int p0_human, int p1_human);
+/* pad state for fighter `side` this frame: `held` / `pressed` are ~btn masks (PAD_*).
+ * Virtua Fighter style P / K / G:
+ *   D-pad left/right   walk towards / away (screen direction)
+ *   Triangle (P)       punch: jab / straight (fwd) / hook (back) / uppercut (down)
+ *   Circle (K)         kick: high kick / roundhouse (fwd) / back kick (back) / sweep (down)
+ *   P + K              special: SBK / dragon kick (fwd) / hurricane (back) / slide (down)
+ *   Square (G, hold)   guard
+ *   an attack button pressed during an attack chains the next move (up to 4) */
+void fight_input(Fight *fg, int side, uint16_t held, uint16_t pressed);
 void fight_update(Fight *fg, Camera *cam, int hz);
 char *fight_draw(Fight *fg, const Camera *cam, uint32_t *ot, char *nextpri);
+/* 5x7 bitmap text (0-9 A-Z ! .), `scale` px per font pixel, centred at cx, OT bucket 0 */
+char *fight_text(const char *s, int cx, int y, int scale, int r, int g, int b, uint32_t *ot, char *nextpri);
 
 #endif

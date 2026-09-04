@@ -2,6 +2,7 @@
 #include <psxgpu.h>
 #include <psxgte.h>
 #include <inline_c.h>
+#include <psxpad.h>
 #include "fight.h"
 #include "ik.h"
 #include "fixmath.h"
@@ -17,6 +18,7 @@
 #define MIN_DIST       1000
 #define RUN_SPEED      44
 #define WALK_SPEED     20
+#define PLAYER_SPEED   30             /* pad controlled walk */
 #define BACKSTEP_SPEED 48
 #define FLOOR_OTZ      (OT_LEN - 1)
 
@@ -73,7 +75,7 @@ static const char *glyph(char c) {
 
 /* draw text with `scale` pixels per font pixel, centred at cx; colour with a
  * 1px dark shadow.  Goes to OT bucket 0 (on top of everything). */
-static char *big_text(const char *s, int cx, int y, int scale, int r, int g, int b, uint32_t *ot, char *nextpri) {
+char *fight_text(const char *s, int cx, int y, int scale, int r, int g, int b, uint32_t *ot, char *nextpri) {
 	TILE *t = (TILE *)nextpri;
 	int len = (int)strlen(s);
 	int w = len * 6 * scale;
@@ -168,6 +170,7 @@ static void fighter_reset(Fighter *f, int side) {
 	f->kb = 0;
 	f->guard_t = 0;
 	f->hits_taken = 0;
+	f->in_pressed = 0;
 	set_anim(f, f->anim_idle);
 }
 
@@ -213,6 +216,17 @@ void fight_init(Fight *fg, const Model *m0, Renderer *r0, const Model *m1, Rende
 	fg->cam_dist = 6000;
 	fg->cam_pitch = 160;
 	fg->cam_target = vec(0, -1900, 0);
+}
+
+void fight_set_players(Fight *fg, int p0_human, int p1_human) {
+	fg->f[0].human = p0_human;
+	fg->f[1].human = p1_human;
+}
+
+void fight_input(Fight *fg, int side, uint16_t held, uint16_t pressed) {
+	Fighter *f = &fg->f[side & 1];
+	f->in_held = held;
+	f->in_pressed |= pressed;          /* consumed by fight_update */
 }
 
 static void start_round(Fight *fg) {
@@ -316,6 +330,75 @@ static int strike_bone(const Fighter *f, int dir) {
 	return best;
 }
 
+/* ---- player control ------------------------------------------------------ */
+/* Virtua Fighter layout: square = guard, triangle = punch, circle = kick,
+ * punch + kick together = special */
+#define BTN_G PAD_SQUARE
+#define BTN_P PAD_TRIANGLE
+#define BTN_K PAD_CIRCLE
+enum { ATK_NONE = 0, ATK_P, ATK_K, ATK_S };
+static int attack_button(uint16_t pressed, uint16_t held) {
+	if (!(pressed & (BTN_P | BTN_K))) return ATK_NONE;
+	if ((held & BTN_P) && (held & BTN_K)) return ATK_S;
+	return (pressed & BTN_P) ? ATK_P : ATK_K;
+}
+
+/* the move for an attack button, given the d-pad direction (dir: towards
+ * the opponent along x, which is the screen direction at camera yaw 0) */
+static int player_move(const Fighter *f, uint16_t held, int dir, int btn) {
+	int fwd  = held & (dir > 0 ? PAD_RIGHT : PAD_LEFT);
+	int back = held & (dir > 0 ? PAD_LEFT : PAD_RIGHT);
+	int down = held & PAD_DOWN;
+	const char *n;
+	if (btn == ATK_P)      n = down ? "uppercut" : fwd ? "straight"    : back ? "hook"      : "jab";
+	else if (btn == ATK_K) n = down ? "sweep"    : fwd ? "roundhouse"  : back ? "back_kick" : "high_kick";
+	else                   n = down ? "slide"    : fwd ? "dragon_kick" : back ? "hurricane" : "sbk";
+	int m = move_index(n);
+	if (m < 0 || f->move_anim[m] < 0) m = 0;
+	return m;
+}
+
+/* attack / guard input from a neutral state; 1 when an action started */
+static int player_act(Fight *fg, int i, int dir) {
+	Fighter *f = &fg->f[i];
+	uint16_t held = f->in_held, pressed = f->in_pressed;
+	f->in_pressed = 0;
+	int btn = attack_button(pressed, held);
+	if (btn) {
+		if (btn == ATK_S && f->special_cd > 0) btn = ATK_P;   /* special on cooldown: a punch */
+		int m = player_move(f, held, dir, btn);
+		if (MOVES[m].cat == CAT_SPECIAL) f->special_cd = 4 * 60;
+		start_single(fg, i, m);
+		return 1;
+	}
+	if (held & BTN_G) {
+		f->state = FS_GUARD;
+		f->guard_t = 0;
+		set_anim(f, f->anim_guard);
+		return 1;
+	}
+	return 0;
+}
+
+/* d-pad: idle / walk in / walk back */
+static void player_walk(Fight *fg, int i, int dir, int d) {
+	Fighter *f = &fg->f[i];
+	int fwd  = f->in_held & (dir > 0 ? PAD_RIGHT : PAD_LEFT);
+	int back = f->in_held & (dir > 0 ? PAD_LEFT : PAD_RIGHT);
+	int want = fwd ? FS_WALK : back ? FS_RETREAT : FS_IDLE;
+	if (want != f->state) {
+		f->state = want;
+		if (want == FS_IDLE) {
+			set_anim(f, f->anim_idle);
+		} else {
+			set_anim(f, f->anim_run);
+			f->pose.speed = want == FS_WALK ? 128 : -128;
+		}
+	}
+	if (want == FS_WALK && d > MIN_DIST) f->x += dir * PLAYER_SPEED * g_step;
+	if (want == FS_RETREAT)              f->x -= dir * PLAYER_SPEED * g_step;
+}
+
 /* ---- AI ----------------------------------------------------------------- */
 static void fighter_ai(Fight *fg, int i) {
 	Fighter *f = &fg->f[i], *o = &fg->f[1 - i];
@@ -326,11 +409,16 @@ static void fighter_ai(Fight *fg, int i) {
 	if (f->state == FS_ATTACK) f->yaw = (base_yaw + f->yaw_corr) & 4095;
 	else f->yaw_corr = 0;
 	const ModelAnim *a = &f->model->anims[f->pose.anim];
+	if (f->special_cd > 0) f->special_cd -= g_step;
 
 	switch (f->state) {
 	case FS_IDLE: {
 		if (f->cooldown > 0) { f->cooldown--; break; }
 		if (o->state == FS_KO) break;
+		if (f->human) {
+			if (!player_act(fg, i, dir)) player_walk(fg, i, dir, d);
+			break;
+		}
 		/* ---- strategy ---------------------------------------------------
 		 * read the opponent: attack startup / recovery, stun, distance zone,
 		 * life lead and the clock; then pick an action.  rnd only breaks ties.
@@ -349,7 +437,6 @@ static void fighter_ai(Fight *fg, int i) {
 		int in_kick    = d <= 1800;
 		uint32_t r = rnd(fg) % 100;
 
-		if (f->special_cd > 0) f->special_cd -= g_step;
 		if (f->plan_special) {
 			/* retreat done: unleash a special (the spinning bird kick half the time) */
 			f->plan_special = 0;
@@ -431,6 +518,16 @@ static void fighter_ai(Fight *fg, int i) {
 		break;
 	}
 	case FS_GUARD:
+		if (f->human) {
+			/* held as long as cross is down */
+			f->in_pressed = 0;
+			if (!(f->in_held & BTN_G)) {
+				f->state = FS_IDLE;
+				f->cooldown = 2;
+				set_anim(f, f->anim_idle);
+			}
+			break;
+		}
 		/* hold the guard while the opponent is still swinging, then relax */
 		if (--f->guard_t <= 0 && o->state != FS_ATTACK) {
 			f->state = FS_IDLE;
@@ -440,6 +537,10 @@ static void fighter_ai(Fight *fg, int i) {
 		if (f->guard_t < -60) { f->state = FS_IDLE; set_anim(f, f->anim_idle); }
 		break;
 	case FS_WALK:
+		if (f->human) {
+			if (!player_act(fg, i, dir)) player_walk(fg, i, dir, d);
+			break;
+		}
 		if (d > APPROACH_STOP) {
 			f->x += dir * WALK_SPEED * g_step;
 		} else {
@@ -449,6 +550,10 @@ static void fighter_ai(Fight *fg, int i) {
 		}
 		break;
 	case FS_RETREAT:
+		if (f->human) {
+			if (!player_act(fg, i, dir)) player_walk(fg, i, dir, d);
+			break;
+		}
 		f->x -= dir * WALK_SPEED * g_step;
 		if (--f->cooldown <= 0 || (!f->plan_special && d > APPROACH_STOP + 1500)) {
 			f->state = FS_IDLE;
@@ -481,6 +586,17 @@ static void fighter_ai(Fight *fg, int i) {
 	case FS_ATTACK: {
 		const MoveDef *mv = &MOVES[f->move];
 		int pct = a->nframes > 1 ? (f->pose.frame * 100) / (a->nframes - 1) : 100;
+		if (f->human) {
+			/* an attack button during the swing buffers the next move of the chain */
+			int btn = attack_button(f->in_pressed, f->in_held);
+			f->in_pressed = 0;
+			if (btn && f->combo_len < 4 && f->combo_len == f->combo_i + 1) {
+				if (btn == ATK_S && f->special_cd > 0) btn = ATK_P;
+				int m = player_move(f, f->in_held, dir, btn);
+				if (MOVES[m].cat == CAT_SPECIAL) f->special_cd = 4 * 60;
+				f->combo[f->combo_len++] = m;
+			}
+		}
 		int active = pct >= mv->hit_from && pct <= mv->hit_to;
 		/* travel: the move carries the body forward around its active frames */
 		if (mv->travel && pct >= mv->hit_from - 15 && pct <= mv->hit_to && d > MIN_DIST)
@@ -575,7 +691,7 @@ static void fighter_ai(Fight *fg, int i) {
 				start_attack(fg, i, f->combo[f->combo_i]);
 			} else {
 				f->state = FS_IDLE;
-				f->cooldown = 10 + (rnd(fg) % 25);
+				f->cooldown = f->human ? 6 : 10 + (rnd(fg) % 25);
 				set_anim(f, f->anim_idle);
 			}
 		}
@@ -755,6 +871,7 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 			if (fg->wins[0] >= 2 || fg->wins[1] >= 2 || fg->round >= 3) {
 				fg->round = 1;
 				fg->wins[0] = fg->wins[1] = 0;
+				fg->match_over = 1;
 			} else {
 				fg->round++;
 			}
@@ -798,6 +915,7 @@ void fight_update(Fight *fg, Camera *cam, int hz) {
 			pose_step(&f->pose, hz >= 45 ? 60 : 30);
 		pose_eval(&f->pose);
 	}
+	fg->f[0].in_pressed = fg->f[1].in_pressed = 0;   /* presses live for one update */
 	if (fg->hitstop > 0) fg->hitstop -= g_step;
 	if (fg->name_t > 0) fg->name_t -= g_step;
 	if (fg->counter_t > 0) fg->counter_t -= g_step;
@@ -869,7 +987,7 @@ static char *draw_hud(Fight *fg, uint32_t *ot, char *nextpri) {
 	char buf[4];
 	int secs = (fg->timer + 59) / 60;
 	buf[0] = '0' + (secs / 10) % 10; buf[1] = '0' + secs % 10; buf[2] = 0;
-	nextpri = big_text(buf, CENTERX, 8, 3, 255, 255, 255, ot, nextpri);
+	nextpri = fight_text(buf, CENTERX, 8, 3, 255, 255, 255, ot, nextpri);
 	t = (TILE *)nextpri;
 	setTile(t); setRGB0(t, 20, 20, 30); setXY0(t, CENTERX - 20, 5); setWH(t, 40, 28); addPrim(ot, t); t++;
 	nextpri = (char *)t;
@@ -899,22 +1017,22 @@ static char *draw_hud(Fight *fg, uint32_t *ot, char *nextpri) {
 	case FP_ROUND: {
 		char r[8] = "ROUND 1";
 		r[6] = '0' + fg->round;
-		if (fg->phase_t > 10) nextpri = big_text(r, CENTERX, 90, 4, 255, 220, 60, ot, nextpri);
+		if (fg->phase_t > 10) nextpri = fight_text(r, CENTERX, 90, 4, 255, 220, 60, ot, nextpri);
 		break;
 	}
 	case FP_FIGHT:
-		nextpri = big_text("FIGHT!", CENTERX, 88, 5, 255, 80, 60, ot, nextpri);
+		nextpri = fight_text("FIGHT!", CENTERX, 88, 5, 255, 80, 60, ot, nextpri);
 		break;
 	case FP_KO:
 		if (fg->phase_t > 5)
-			nextpri = big_text(fg->ringout ? "RING OUT" : fg->timer == 0 ? "TIME UP" : "K.O.", CENTERX, 88,
+			nextpri = fight_text(fg->ringout ? "RING OUT" : fg->timer == 0 ? "TIME UP" : "K.O.", CENTERX, 88,
 			                   fg->ringout ? 4 : 5, 255, 60, 60, ot, nextpri);
 		break;
 	case FP_END: {
 		const char *s = fg->winner == 0 ? "P1 WIN" : "P2 WIN";
-		nextpri = big_text(s, CENTERX, 90, 4, 255, 220, 60, ot, nextpri);
+		nextpri = fight_text(s, CENTERX, 90, 4, 255, 220, 60, ot, nextpri);
 		if (fg->winner >= 0 && fg->f[fg->winner].hp == 100)
-			nextpri = big_text("PERFECT", CENTERX, 66, 2, 255, 255, 255, ot, nextpri);
+			nextpri = fight_text("PERFECT", CENTERX, 66, 2, 255, 255, 255, ot, nextpri);
 		break;
 	}
 	default:
@@ -928,10 +1046,10 @@ static char *draw_hud(Fight *fg, uint32_t *ot, char *nextpri) {
 		int k = 0;
 		if (n >= 10) hb[k++] = '0' + n / 10;
 		hb[k++] = '0' + n % 10; hb[k++] = ' '; hb[k++] = 'H'; hb[k++] = 'I'; hb[k++] = 'T'; hb[k++] = 'S'; hb[k] = 0;
-		nextpri = big_text(hb, i ? SCREEN_XRES - 60 : 60, 40, 2, 255, 160, 40, ot, nextpri);
+		nextpri = fight_text(hb, i ? SCREEN_XRES - 60 : 60, 40, 2, 255, 160, 40, ot, nextpri);
 	}
 	if (fg->counter_t > 0)
-		nextpri = big_text("COUNTER!", fg->counter_side ? SCREEN_XRES - 70 : 70, 58, 2, 255, 80, 200, ot, nextpri);
+		nextpri = fight_text("COUNTER!", fg->counter_side ? SCREEN_XRES - 70 : 70, 58, 2, 255, 80, 200, ot, nextpri);
 	/* move name popup, on the side of the fighter using it */
 	if (fg->name_t > 0) {
 		char nm[20];
@@ -942,7 +1060,7 @@ static char *draw_hud(Fight *fg, uint32_t *ot, char *nextpri) {
 			nm[k] = c == '_' ? ' ' : (c >= 'a' && c <= 'z') ? c - 32 : c;
 		}
 		nm[k] = 0;
-		nextpri = big_text(nm, fg->name_side ? SCREEN_XRES - 84 : 84, 178, 2,
+		nextpri = fight_text(nm, fg->name_side ? SCREEN_XRES - 84 : 84, 178, 2,
 		                   255, 255, fg->name_t > 40 ? 255 : 120, ot, nextpri);
 	}
 	return nextpri;
@@ -956,5 +1074,6 @@ char *fight_draw(Fight *fg, const Camera *cam, uint32_t *ot, char *nextpri) {
 		nextpri = render_model(f->renderer, f->model, &f->pose, &fc, ot, nextpri);
 	}
 	nextpri = draw_fx(fg, cam, ot, nextpri);
+	if (fg->demo) return nextpri;
 	return draw_hud(fg, ot, nextpri);
 }

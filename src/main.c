@@ -1,6 +1,13 @@
-/* NULL FIGHTER - skinned FBX character viewer for PlayStation 1
+/* NULL FIGHTER - 3D fighting game / skinned FBX character viewer for PlayStation 1
  *
- * Controls
+ * Title screen: 1P MODE (pad 1 vs CPU), VS MODE (pad 1 vs pad 2), CPU MODE
+ * (CPU vs CPU).  D-pad up/down + START.  START + SELECT on the title enters
+ * the model viewer; START + SELECT anywhere else returns to the title.
+ *
+ * Fight (Virtua Fighter layout): D-pad walk, triangle P, circle K, square G,
+ * P + K special, d-pad + button for variations, buttons during a swing chain.
+ *
+ * Viewer controls
  *   D-pad                steer the monkey on the cloth grid (Dancing Eyes style)
  *   Left stick           orbit camera        Right stick up/down: camera up / down
  *   SELECT + D-pad       orbit camera (for digital pads)
@@ -11,7 +18,7 @@
  *   Square / Circle      zoom in / out (field of view)
  *   L1                   rotate model (yaw)
  *   R1                   IK mode on / off (the dance restarts on entry)
- *   START + SELECT       fight mode (CPU vs CPU) <-> viewer
+ *   START + SELECT       back to the title screen
  *   L2 / R2              previous / next animation (outside IK mode)
  *   START (tap)          switch character
  *   L3 (stick click)     pause / resume animation
@@ -40,6 +47,7 @@
 #include "fixmath.h"
 #include "walker.h"
 #include "fight.h"
+#include "title.h"
 
 #define SCREEN_XRES   320
 #define SCREEN_YRES   240
@@ -79,6 +87,15 @@ static const ModelAsset assets[] = {
 #define NUM_ASSETS ((int)(sizeof(assets) / sizeof(assets[0])))
 
 static uint8_t pad_buff[2][34];
+
+/* ~button mask style state of pad `port` (0xffff when nothing is plugged in) */
+static uint16_t pad_buttons(int port) {
+	const PADTYPE *pad = (const PADTYPE *)pad_buff[port];
+	if (pad->stat == 0 &&
+	    (pad->type == PAD_ID_DIGITAL || pad->type == PAD_ID_ANALOG || pad->type == PAD_ID_ANALOG_STICK))
+		return pad->btn;
+	return 0xffff;
+}
 static int fnt_hud = -1, fnt_dbg = -1, fnt_fps = -1;
 
 /* Face camera picture-in-picture: the head bone rendered again from a
@@ -413,7 +430,11 @@ int main(void) {
 	static Fight fight;               /* two poses: keep it off the stack */
 	static Model  fmodel[2];
 	static Renderer frender[2];
-	int mode_fight = 1;               /* boot straight into the fight */
+	enum { SCR_TITLE, SCR_FIGHT, SCR_VIEWER };
+	int screen = SCR_TITLE;           /* boot on the title */
+	int game_mode = MODE_CPU;
+	Title title;
+	title_init(&title);
 
 	int cur_asset = 0;
 	int model_yaw;
@@ -456,6 +477,7 @@ int main(void) {
 	renderer_init(&frender[1], fight_tims2);
 	frender[0].shading = frender[1].shading = SHADE_NONE;
 	fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
+	fight.demo = 1;                  /* title backdrop */
 	prof_init();
 	pose_init(&pose, &model, find_anim(&model, "RUN"));
 
@@ -463,7 +485,7 @@ int main(void) {
 	StartPAD();
 	ChangeClearPAD(0);
 
-	uint16_t prev_btn = 0xffff;
+	uint16_t prev_btn = 0xffff, prev_btn2 = 0xffff;
 	int frames = 0, fps = 0, fps_frames = 0, last_vsync = VSync(-1);
 
 	while (1) {
@@ -528,29 +550,55 @@ int main(void) {
 		if (held & PAD_L1) model_yaw += 32;
 		model_yaw &= 4095;
 
-		/* START + SELECT (both held, one just pressed) toggles IK mode; the
-		 * single-button actions fire on release so the combo does not
-		 * trigger them. */
+		/* START + SELECT (both held, one just pressed): title <-> viewer, or
+		 * fight -> title.  The single-button actions fire on release so the
+		 * combo does not trigger them. */
+		int start_fight = -1;             /* MODE_* chosen on the title this frame */
 		if ((pressed & (PAD_START | PAD_SELECT)) && (held & PAD_START) && (held & PAD_SELECT)) {
 			combo_used = 1;
-			mode_fight ^= 1;
-			if (mode_fight) {
+			if (screen == SCR_TITLE) {
+				screen = SCR_VIEWER;
+				renderer_init(&renderer, assets[cur_asset].tims);
+				walker_load_sprite(monkey_tim);
+				renderer.cut = walker.tri_cut;
+			} else {
+				screen = SCR_TITLE;
+				title_init(&title);
 				renderer_init(&frender[0], fight_tims);          /* VRAM back to the fighters */
 				renderer_init(&frender[1], fight_tims2);
 				frender[0].shading = frender[1].shading = SHADE_NONE;
 				fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
-			} else {
-				renderer_init(&renderer, assets[cur_asset].tims);
-				walker_load_sprite(monkey_tim);
-				renderer.cut = walker.tri_cut;
+				fight.demo = 1;
 			}
+		} else if (screen == SCR_TITLE && !(held & PAD_SELECT)) {
+			start_fight = title_update(&title, pressed);
 		}
-		if (!mode_fight && (pressed & PAD_R1)) {
+		if (start_fight >= 0) {
+			game_mode = start_fight;
+			screen = SCR_FIGHT;
+			fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
+			fight_set_players(&fight, game_mode != MODE_CPU, game_mode == MODE_VS);
+		}
+		if (screen == SCR_FIGHT && fight.match_over && game_mode != MODE_CPU) {
+			screen = SCR_TITLE;                                  /* match done: back to the menu */
+			title_init(&title);
+			fight_init(&fight, &fmodel[0], &frender[0], &fmodel[1], &frender[1]);
+			fight.demo = 1;
+		}
+		if (screen == SCR_VIEWER && (pressed & PAD_R1)) {
 			if (ik.active) { ik_leave(&ik, &pose); dance = 0; }
 			else           { ik_enter(&ik, &model, &pose); dance = 1; dance_t = 0; }
 		}
-		if (mode_fight) {
-			/* ---- fight mode frame ------------------------------------ */
+		if (screen != SCR_VIEWER) {
+			/* ---- fight / title frame --------------------------------- */
+			if (screen == SCR_FIGHT) {
+				/* pad 1 -> P1 (unless SELECT is held for the exit combo), pad 2 -> P2 */
+				uint16_t btn2 = pad_buttons(1);
+				uint16_t pressed2 = (~btn2) & prev_btn2;
+				prev_btn2 = btn2;
+				if (!(held & PAD_SELECT)) fight_input(&fight, 0, held, pressed);
+				fight_input(&fight, 1, ~btn2, pressed2);
+			}
 			prof_mark(PROF_INPUT);
 			fight_update(&fight, &cam, fps >= 45 ? 60 : 30);
 			gte_SetGeomOffset(CENTERX, CENTERY);
@@ -558,15 +606,19 @@ int main(void) {
 			prof_mark(PROF_POSE);
 			db_nextpri = draw_floor(&cam, db[db_active].ot, db_nextpri);
 			db_nextpri = fight_draw(&fight, &cam, db[db_active].ot, db_nextpri);
+			if (screen == SCR_TITLE)
+				db_nextpri = title_draw(&title, db[db_active].ot, db_nextpri);
 			db_nextpri = prof_draw(db[db_active].ot, db_nextpri);
 			FntPrint(fnt_fps, "FPS %2d\n", fps);
 			FntFlush(fnt_fps);
-			FntPrint(fnt_dbg, "CPU%d V%d P%d M%d TRI%d+%d\n",
-			         prof_shown[PROF_INPUT] + prof_shown[PROF_POSE] + prof_shown[PROF_VERTS] +
-			         prof_shown[PROF_PRIMS] + prof_shown[PROF_MISC],
-			         prof_shown[PROF_VERTS], prof_shown[PROF_PRIMS], prof_shown[PROF_MISC],
-			         frender[0].tris_drawn, frender[1].tris_drawn);
-			FntFlush(fnt_dbg);
+			if (screen == SCR_FIGHT) {
+				FntPrint(fnt_dbg, "CPU%d V%d P%d M%d TRI%d+%d\n",
+				         prof_shown[PROF_INPUT] + prof_shown[PROF_POSE] + prof_shown[PROF_VERTS] +
+				         prof_shown[PROF_PRIMS] + prof_shown[PROF_MISC],
+				         prof_shown[PROF_VERTS], prof_shown[PROF_PRIMS], prof_shown[PROF_MISC],
+				         frender[0].tris_drawn, frender[1].tris_drawn);
+				FntFlush(fnt_dbg);
+			}
 			prof_mark(PROF_MISC);
 			display();
 			frames++;
