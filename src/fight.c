@@ -946,6 +946,7 @@ static void fighter_ai(Fight *fg, int i) {
 		}
 		break;
 	}
+	}
 	/* ring out: knocked over the stage edge while flying */
 	if ((f->x < -STAGE_EDGE || f->x > STAGE_EDGE) && f->kb && (f->state == FS_HIT || f->state == FS_DOWN) &&
 	    fg->phase == FP_FIGHTING) {
