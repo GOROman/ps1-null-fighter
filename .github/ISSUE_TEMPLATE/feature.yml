@@ -1,11 +1,12 @@
-name: "✨ 要望・新機能リクエスト"
-description: "新しい技、キャラ、モード、UIの改善など、欲しい機能を教えてください"
-labels: ["enhancement"]
+name: "御意見フォーム（要望）"
+description: "新しい技、キャラ、モード、UIの改善など、ゲームへの要望をお寄せください"
+labels: ["enhancement", "御意見"]
 body:
   - type: markdown
     attributes:
       value: |
-        御意見有用！🎮 要望をお寄せいただきありがとうございます。
+        ## 御意見有用！
+        要望をお寄せいただきありがとうございます。
         できるだけ詳しく書いていただけると、AI が実装しやすくなります。
 
   - type: dropdown

@@ -1,11 +1,12 @@
-name: "🐛 バグ報告"
+name: "御意見フォーム（バグ報告）"
 description: "動作がおかしい、クラッシュする、表示が変など、問題を報告してください"
-labels: ["bug"]
+labels: ["bug", "御意見"]
 body:
   - type: markdown
     attributes:
       value: |
-        バグ報告ありがとうございます！🔧
+        ## 御意見有用！
+        バグ報告ありがとうございます。
         再現できるように、できるだけ詳しく状況を教えてください。
 
   - type: textarea
