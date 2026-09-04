@@ -3,253 +3,442 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>御意見有用 | PlayStation 3D 対戦格闘</title>
+<title>御意見有用 | PlayStation 3D対戦格闘</title>
 <meta name="description" content="初代 PlayStation 向け 3D 対戦格闘ゲーム「御意見有用」公式サイト。ストーリー、キャラクター、遊び方、御意見の書き方、ダウンロード。">
 <meta property="og:title" content="御意見有用">
-<meta property="og:description" content="皆様の意見で育つ PS1 用 3D 格闘ゲーム。悪の組織シャルドネの洗脳大会に挑め。">
+<meta property="og:description" content="すべての意見は、拳で述べよ。悪の組織シャルドネの洗脳大会に挑む PS1 用 3D 格闘。">
 <meta property="og:image" content="img/screenshot-fight.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@700;800&family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Anton&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0b0d1a; --bg2: #141833; --panel: #1b2040; --line: #2f3670;
-    --fg: #e8e9f2; --dim: #a5a9c8; --yellow: #ffdc28; --red: #ff5040; --cyan: #3cc8f0; --magenta: #e650e6;
+    --ink: #0a0a0a; --paper: #f2ede3; --red: #c8102e; --red2: #8c0a1e; --gold: #e2b84a; --gold2: #8a6a1e;
+    --white: #fff; --grey: #8a8a8a;
+    --mincho: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif;
+    --gothic: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    --latin: "Anton", Impact, "Arial Narrow", sans-serif;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; line-height: 1.7; }
-  a { color: var(--cyan); }
-  header.hero { position: relative; overflow: hidden; background: linear-gradient(180deg, #1a1f45 0%, var(--bg) 100%); border-bottom: 2px solid var(--line); }
-  header.hero::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,.18) 2px 4px); pointer-events: none; }
-  .hero-inner { position: relative; max-width: 1040px; margin: 0 auto; padding: 48px 20px 32px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; align-items: center; }
-  .hero h1 { margin: 0; font-size: clamp(44px, 8vw, 84px); line-height: 1.05; letter-spacing: .04em; color: var(--yellow); text-shadow: 4px 4px 0 #0a0a14, 0 0 24px rgba(255,220,40,.35); }
-  .hero .sub { margin: 10px 0 0; font-size: 14px; letter-spacing: .3em; color: var(--dim); text-transform: uppercase; }
-  .hero p.lead { margin: 18px 0 0; font-size: 18px; }
-  .hero .shot { border: 3px solid var(--line); box-shadow: 0 0 0 3px #000, 0 12px 40px rgba(0,0,0,.6); image-rendering: pixelated; width: 100%; display: block; background: #000; }
-  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
-  .btn { display: inline-block; padding: 12px 20px; border: 2px solid var(--yellow); color: #101020; background: var(--yellow); font-weight: 700; text-decoration: none; box-shadow: 4px 4px 0 #000; }
-  .btn.alt { background: transparent; color: var(--yellow); }
-  .btn:hover { transform: translate(-1px,-1px); box-shadow: 5px 5px 0 #000; }
-  nav.top { position: sticky; top: 0; z-index: 5; background: rgba(11,13,26,.94); border-bottom: 1px solid var(--line); backdrop-filter: blur(4px); }
-  nav.top ul { list-style: none; margin: 0 auto; padding: 0 12px; max-width: 1040px; display: flex; flex-wrap: wrap; gap: 4px 18px; }
-  nav.top a { display: block; padding: 10px 2px; color: var(--fg); text-decoration: none; font-size: 14px; border-bottom: 2px solid transparent; }
-  nav.top a:hover { border-color: var(--yellow); }
-  main { max-width: 1040px; margin: 0 auto; padding: 8px 20px 60px; }
-  section { padding: 44px 0 12px; border-bottom: 1px solid var(--line); }
-  h2 { font-size: 30px; margin: 0 0 18px; color: var(--yellow); letter-spacing: .06em; }
-  h2 small { display: block; font-size: 12px; letter-spacing: .3em; color: var(--dim); font-weight: 400; }
-  h3 { margin: 26px 0 8px; font-size: 19px; color: var(--cyan); }
-  .story p { font-size: 17px; max-width: 760px; }
-  .story blockquote { margin: 18px 0; padding: 14px 20px; border-left: 4px solid var(--red); background: var(--panel); font-style: italic; }
-  .story .tagline { font-size: 24px; font-weight: 700; color: var(--red); text-shadow: 3px 3px 0 #000; }
-  .chars { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-  .card { background: var(--panel); border: 2px solid var(--line); padding: 20px; box-shadow: 6px 6px 0 #000; }
-  .card .tag { font-size: 12px; letter-spacing: .25em; color: var(--dim); }
-  .card h3 { margin: 4px 0 8px; font-size: 24px; color: var(--yellow); }
-  .card dl { margin: 12px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; }
-  .card dt { color: var(--dim); }
-  .card dd { margin: 0; }
-  table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: 15px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--dim); font-weight: 600; width: 34%; }
-  .tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 32px; }
-  kbd { display: inline-block; min-width: 1.8em; text-align: center; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 4px; background: var(--bg2); font-family: inherit; font-size: 14px; }
-  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
-  .modes .card h3 { font-size: 20px; }
-  ul.tips li { margin: 6px 0; }
-  .good, .bad { border: 2px solid var(--line); padding: 14px 18px; background: var(--bg2); font-size: 15px; }
-  .good { border-color: #3fa060; } .bad { border-color: #a04040; }
-  .good b { color: #6fdc8c; } .bad b { color: var(--red); }
-  .issue-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-  .steps { counter-reset: s; list-style: none; padding: 0; }
-  .steps li { counter-increment: s; position: relative; padding-left: 46px; margin: 12px 0; }
-  .steps li::before { content: counter(s); position: absolute; left: 0; top: 2px; width: 32px; height: 32px; display: grid; place-items: center; background: var(--yellow); color: #101020; font-weight: 700; box-shadow: 3px 3px 0 #000; }
-  footer { text-align: center; color: var(--dim); font-size: 13px; padding: 30px 20px 50px; }
-  code { background: var(--bg2); padding: 1px 6px; border-radius: 3px; font-size: .92em; }
-  @media (max-width: 760px) { .hero-inner { grid-template-columns: 1fr; padding-top: 28px; } th { width: 42%; } }
+  body { margin: 0; background: var(--ink); color: var(--white); font-family: var(--gothic); line-height: 1.8; font-weight: 500; }
+  a { color: inherit; }
+  img { max-width: 100%; display: block; }
+
+  /* halftone + grain that sits over every dark section, like a printed page */
+  .halftone { position: relative; isolation: isolate; }
+  .halftone::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .55;
+    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.09) 1px, transparent 1.3px);
+    background-size: 5px 5px; }
+
+  /* ---------------- hero: the full-page ad ---------------- */
+  .ad { min-height: min(100svh, 960px); position: relative; overflow: hidden;
+    background: radial-gradient(ellipse 80% 60% at 70% 40%, #3a0a12 0%, #120306 45%, var(--ink) 100%); }
+  .ad .rays { position: absolute; inset: -40%; z-index: 0; opacity: .12; pointer-events: none;
+    background: repeating-conic-gradient(from 0deg at 68% 42%, #fff 0deg 3deg, transparent 3deg 12deg); }
+  .ad .wire { position: absolute; inset: 0; z-index: 0; opacity: .13; pointer-events: none;
+    background-image: linear-gradient(rgba(255,255,255,.7) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.7) 1px, transparent 1px);
+    background-size: 64px 64px; transform: perspective(600px) rotateX(62deg) translateY(30%); transform-origin: 50% 100%; }
+  .ad-inner { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 28px 24px 40px;
+    display: grid; grid-template-columns: auto minmax(280px, 1.15fr) minmax(360px, 1fr); gap: 28px; min-height: min(100svh, 960px); }
+
+  .ad .topline { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; font-size: 12px; letter-spacing: .28em; color: var(--gold); }
+  .ad .topline .ps { font-family: var(--latin); font-size: 15px; letter-spacing: .1em; border: 1px solid var(--gold); padding: 2px 10px; }
+
+  /* the vertical catch copy, huge mincho */
+  .catch { writing-mode: vertical-rl; text-orientation: mixed; font-family: var(--mincho); font-weight: 800;
+    font-size: clamp(30px, 4.6vw, 58px); line-height: 1.15; letter-spacing: .08em; color: var(--white);
+    text-shadow: 0 0 2px #000, 4px 4px 0 var(--red2), 0 0 30px rgba(200,16,46,.45);
+    padding-top: 8px; align-self: start; }
+  .catch .sm { font-size: .42em; letter-spacing: .3em; color: var(--gold); margin-top: 1.2em; text-shadow: none; font-weight: 700; }
+
+  .shotwrap { position: relative; align-self: center; }
+  .shotwrap .frame { position: relative; border: 6px solid #111; outline: 2px solid var(--gold); box-shadow: 0 30px 60px rgba(0,0,0,.8), 0 0 0 10px #000; transform: rotate(-2deg); background: #000; }
+  .shotwrap .frame img { image-rendering: pixelated; width: 100%; }
+  .shotwrap .caption { position: absolute; right: -6px; bottom: -30px; font-size: 11px; letter-spacing: .1em; color: var(--grey); }
+  .shotwrap .burst { position: absolute; left: -34px; top: -34px; width: 132px; height: 132px; display: grid; place-items: center; text-align: center;
+    background: var(--red); color: var(--white); font-family: var(--gothic); font-weight: 900; font-size: 15px; line-height: 1.25;
+    clip-path: polygon(50% 0,61% 12%,76% 6%,80% 21%,96% 22%,92% 37%,100% 50%,92% 63%,96% 78%,80% 79%,76% 94%,61% 88%,50% 100%,39% 88%,24% 94%,20% 79%,4% 78%,8% 63%,0 50%,8% 37%,4% 22%,20% 21%,24% 6%,39% 12%);
+    transform: rotate(-12deg); text-shadow: 1px 1px 0 #000; }
+  .shotwrap .burst b { display: block; font-size: 26px; font-family: var(--latin); letter-spacing: .04em; }
+
+  /* the logo */
+  .logo { align-self: end; text-align: right; }
+  .logo .genre { font-size: 13px; letter-spacing: .5em; color: var(--gold); margin: 0 0 4px; }
+  .logo h1 { margin: 0; font-family: var(--mincho); font-weight: 800; font-size: clamp(48px, 6.6vw, 86px); line-height: .95; letter-spacing: -.02em; white-space: nowrap;
+    background: linear-gradient(180deg, #fff8dc 0%, #f4d36a 28%, #a8781c 50%, #ffe9a0 54%, #e2b84a 72%, #6b4d10 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(3px 3px 0 #000) drop-shadow(0 0 18px rgba(226,184,74,.35)); }
+  .logo h1 .logoimg { display: inline-block; max-width: 100%; max-height: 260px; width: auto; filter: drop-shadow(4px 4px 0 #000); }
+  .logo h1 .logotext { display: none; }
+  .logo h1.nologo .logotext { display: inline; }
+  .logo h1.nologo .logoimg { display: none; }
+  .logo .en { font-family: var(--latin); font-size: clamp(16px, 2.4vw, 28px); letter-spacing: .34em; color: var(--white); margin: 6px 0 0; }
+  .logo .release { display: inline-block; margin-top: 14px; padding: 8px 20px; background: var(--red); color: var(--white); font-weight: 900; font-size: 20px; letter-spacing: .3em; transform: skew(-12deg); box-shadow: 4px 4px 0 #000; }
+  .logo .release span { display: inline-block; transform: skew(12deg); }
+
+  /* spec strip like the bottom of a print ad */
+  .spec { grid-column: 1 / -1; align-self: end; border-top: 2px solid var(--gold); border-bottom: 1px solid var(--gold2); padding: 10px 0;
+    display: flex; flex-wrap: wrap; gap: 6px 26px; font-size: 12px; letter-spacing: .12em; }
+  .spec b { color: var(--gold); font-weight: 700; margin-right: .5em; }
+  .spec .dl { margin-left: auto; }
+  .spec .dl a { color: var(--white); font-weight: 900; text-decoration: none; border-bottom: 2px solid var(--red); }
+
+  /* ---------------- nav ---------------- */
+  nav.top { position: sticky; top: 0; z-index: 10; background: rgba(10,10,10,.92); border-bottom: 1px solid #333; }
+  nav.top ul { list-style: none; margin: 0 auto; padding: 0 16px; max-width: 1180px; display: flex; flex-wrap: wrap; gap: 0 4px; }
+  nav.top a { display: block; padding: 10px 12px; text-decoration: none; font-size: 13px; letter-spacing: .2em; font-weight: 700; }
+  nav.top a:hover { color: var(--gold); }
+  nav.top li.cta { margin-left: auto; }
+  nav.top li.cta a { color: var(--gold); }
+
+  /* ---------------- generic section ---------------- */
+  section { padding: 72px 24px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .head { display: flex; align-items: baseline; gap: 18px; margin: 0 0 30px; border-bottom: 3px double var(--gold2); padding-bottom: 10px; }
+  .head h2 { margin: 0; font-family: var(--mincho); font-weight: 800; font-size: clamp(30px, 4.4vw, 48px); letter-spacing: .1em; color: var(--white); }
+  .head .en { font-family: var(--latin); letter-spacing: .3em; color: var(--red); font-size: 18px; }
+  .lead { font-family: var(--mincho); font-weight: 700; font-size: clamp(20px, 2.6vw, 30px); line-height: 1.6; margin: 0 0 22px; color: var(--gold); }
+
+  /* story: paper insert */
+  .story { background: var(--paper); color: var(--ink); }
+  .story .head h2 { color: var(--ink); }
+  .story .head { border-color: var(--red); }
+  .story .cols { display: grid; grid-template-columns: auto 1fr; gap: 40px; align-items: start; }
+  .story .vert { writing-mode: vertical-rl; font-family: var(--mincho); font-weight: 800; font-size: clamp(26px, 3.2vw, 40px); line-height: 1.35; letter-spacing: .08em; color: var(--red); height: 600px; }
+  .story p { font-size: 17px; max-width: 46em; margin: 0 0 1em; font-family: var(--mincho); font-weight: 700; }
+  .story .invite { margin: 22px 0; padding: 18px 26px; border: 2px solid var(--ink); background: #fff; font-family: var(--mincho); position: relative; }
+  .story .invite::before { content: "招 待 状"; position: absolute; top: -13px; left: 18px; background: var(--red); color: #fff; padding: 0 10px; font-size: 13px; letter-spacing: .3em; font-family: var(--gothic); font-weight: 700; }
+  .story .tag { font-family: var(--mincho); font-weight: 800; font-size: clamp(26px, 3.6vw, 40px); color: var(--ink); margin-top: 20px; letter-spacing: .06em; }
+
+  /* characters */
+  .chars { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; }
+  .fighter { position: relative; background: #111; border: 1px solid #333; box-shadow: 0 20px 50px rgba(0,0,0,.7); overflow: hidden; }
+  .fighter .still { height: 380px; background-size: 200% auto; background-repeat: no-repeat; image-rendering: pixelated; filter: contrast(1.1) saturate(1.15); position: relative; }
+  .fighter .still::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0) 45%, #111 100%); }
+  .fighter .still { background-size: contain, 260% auto; background-position: center bottom, 84% 26%; }
+  .fighter.naru .still { background-image: url(img/naru.png), url(img/screenshot-fight.png); }
+  .fighter.ako .still  { background-image: url(img/ako.png), url(img/screenshot-fight.png); background-position: center bottom, 28% 26%; }
+  .fighter .name { position: absolute; top: 18px; writing-mode: vertical-rl; font-family: var(--mincho); font-weight: 800; font-size: 36px; letter-spacing: .08em; white-space: nowrap; color: #fff; text-shadow: 3px 3px 0 var(--red), 0 0 20px #000; }
+  .fighter.naru .name { right: 22px; } .fighter.ako .name { left: 22px; }
+  .fighter .side { position: absolute; top: 14px; font-family: var(--latin); font-size: 28px; letter-spacing: .1em; color: var(--gold); text-shadow: 2px 2px 0 #000; }
+  .fighter.naru .side { left: 18px; } .fighter.ako .side { right: 18px; }
+  .fighter .body { padding: 18px 24px 26px; }
+  .fighter .body p { margin: 0 0 12px; font-size: 15px; }
+  .fighter dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-size: 14px; }
+  .fighter dt { color: var(--gold); font-weight: 700; letter-spacing: .1em; } .fighter dd { margin: 0; }
+  .note { color: var(--grey); font-size: 13px; margin-top: 16px; }
+
+  /* moves: magazine style command list */
+  .moves { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 22px; }
+  .mv { border: 1px solid #333; background: #0f0f0f; }
+  .mv h3 { margin: 0; padding: 8px 14px; background: var(--red); font-size: 16px; letter-spacing: .3em; font-weight: 900; }
+  .mv table { width: 100%; border-collapse: collapse; }
+  .mv td { padding: 9px 14px; border-bottom: 1px solid #222; font-size: 15px; }
+  .mv td:first-child { width: 48%; color: var(--gold); font-weight: 700; letter-spacing: .05em; white-space: nowrap; }
+  kbd { display: inline-block; min-width: 1.6em; text-align: center; padding: 0 5px; border: 1px solid #555; border-bottom-width: 3px; border-radius: 3px; background: #1a1a1a; font-family: inherit; font-size: .9em; }
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; margin-bottom: 40px; }
+  .mode { border: 2px solid var(--gold2); padding: 18px 20px; background: linear-gradient(135deg, #1a1408, #0a0a0a); }
+  .mode b { display: block; font-family: var(--latin); font-size: 30px; letter-spacing: .08em; color: var(--gold); }
+  .mode span { font-size: 14px; }
+
+  /* system */
+  .sys { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+  .sys div { border-left: 4px solid var(--red); padding: 4px 18px; }
+  .sys b { display: block; font-family: var(--mincho); font-weight: 800; font-size: 22px; letter-spacing: .1em; color: var(--white); }
+  .sys p { margin: 4px 0 0; font-size: 15px; }
+  .tips { margin: 40px 0 0; padding: 22px 26px; border: 1px dashed var(--gold2); }
+  .tips b { color: var(--gold); letter-spacing: .3em; }
+  .tips ul { margin: 8px 0 0; padding-left: 1.3em; font-size: 15px; }
+
+  /* feedback campaign: like a mail-in box in an old ad */
+  .campaign { background: var(--red); color: #fff; }
+  .campaign .head { border-color: #fff; } .campaign .head .en { color: var(--gold); }
+  .campaign .lead { color: #fff; }
+  .campaign .box { background: #fff; color: var(--ink); padding: 26px 30px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 30px; }
+  .campaign ol { margin: 0; padding-left: 1.4em; font-size: 16px; }
+  .campaign ol li { margin: 8px 0; }
+  .campaign .ex { font-size: 14px; }
+  .campaign .ex .g { border: 2px solid #2a8a4a; padding: 10px 14px; margin-bottom: 10px; }
+  .campaign .ex .b { border: 2px solid var(--red); padding: 10px 14px; }
+  .campaign .ex b { display: block; letter-spacing: .2em; margin-bottom: 4px; }
+  .campaign .btn { display: inline-block; margin-top: 18px; padding: 12px 26px; background: var(--ink); color: #fff; text-decoration: none; font-weight: 900; letter-spacing: .3em; box-shadow: 4px 4px 0 rgba(0,0,0,.35); }
+  .campaign .btn:hover { background: #222; }
+  .campaign .topics { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .campaign .topics span { border: 1px solid #fff; padding: 2px 12px; font-size: 13px; }
+
+  /* download */
+  .dl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; align-items: start; }
+  .disc { display: flex; gap: 22px; align-items: center; }
+  .disc .cd { width: 140px; height: 140px; border-radius: 50%; flex: none; position: relative;
+    background: conic-gradient(from 200deg, #d0d0d0, #f6f6f6, #b9c9ff, #ffd0e0, #d0ffe8, #fff2c0, #d0d0d0); box-shadow: 0 10px 30px rgba(0,0,0,.6); }
+  .disc .cd::after { content: ""; position: absolute; inset: 42%; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 6px #e8e8e8 inset; }
+  .disc .cd::before { content: "御意見有用"; position: absolute; left: 0; right: 0; top: 18px; text-align: center; font-family: var(--mincho); font-weight: 800; font-size: 14px; color: #333; }
+  .dl table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .dl th { text-align: left; color: var(--gold); padding: 8px 10px 8px 0; white-space: nowrap; vertical-align: top; letter-spacing: .1em; }
+  .dl td { padding: 8px 0; border-bottom: 1px solid #222; }
+  .bigbtn { display: inline-block; padding: 16px 34px; background: linear-gradient(180deg, #ffe9a0, #e2b84a 50%, #b88a24); color: var(--ink); text-decoration: none; font-weight: 900; font-size: 20px; letter-spacing: .2em; box-shadow: 5px 5px 0 #000; }
+  .bigbtn:hover { filter: brightness(1.06); }
+  .subbtn { display: inline-block; margin-left: 12px; padding: 14px 20px; border: 2px solid var(--gold); color: var(--gold); text-decoration: none; font-weight: 700; letter-spacing: .1em; }
+
+  /* screenshots strip */
+  .strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+  .strip figure { margin: 0; border: 3px solid #222; background: #000; }
+  .strip img { image-rendering: pixelated; }
+  .strip figcaption { font-size: 12px; color: var(--grey); padding: 6px 10px; letter-spacing: .08em; }
+
+  footer { padding: 30px 24px 50px; font-size: 11px; color: var(--grey); letter-spacing: .06em; border-top: 1px solid #222; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+  footer a { color: var(--grey); }
+  code { background: #1a1a1a; padding: 1px 6px; border-radius: 3px; font-size: .92em; color: #fff; }
+
+  @media (max-width: 900px) {
+    .ad-inner { grid-template-columns: auto minmax(0, 1fr); }
+    .logo { grid-column: 1 / -1; text-align: left; }
+    .chars, .story .cols, .campaign .box, .dl-grid { grid-template-columns: 1fr; }
+    .story .vert { height: auto; writing-mode: horizontal-tb; }
+    .fighter .still { height: 300px; }
+  }
+  @media (max-width: 560px) {
+    .ad-inner { grid-template-columns: 1fr; }
+    .catch { writing-mode: horizontal-tb; font-size: 32px; }
+    .catch .sm { margin: 6px 0 0; }
+    .shotwrap .frame { transform: none; }
+    .shotwrap .burst { left: -8px; top: -20px; width: 100px; height: 100px; font-size: 12px; } .shotwrap .burst b { font-size: 20px; }
+    section { padding: 48px 18px; }
+    .fighter .name { font-size: 34px; }
+    .subbtn { margin: 12px 0 0; }
+  }
 </style>
 </head>
 <body>
 
-<header class="hero">
-  <div class="hero-inner">
-    <div>
-      <p class="sub">PlayStation 3D Fighting</p>
-      <h1>御意見有用</h1>
-      <p class="lead">悪の組織シャルドネが主催する洗脳大会に、拳で意見を述べに行く。初代 PlayStation で動く、皆様の意見で育つ 3D 対戦格闘ゲーム。</p>
-      <div class="cta">
-        <a class="btn" href="https://github.com/GOROman/ps1-null-fighter/releases/latest">ダウンロード（最新版 zip）</a>
-        <a class="btn alt" href="https://github.com/GOROman/ps1-null-fighter/issues/new/choose">御意見を送る</a>
-      </div>
+<header class="ad halftone">
+  <div class="rays"></div>
+  <div class="wire"></div>
+  <div class="ad-inner">
+    <div class="topline">
+      <span>1〜2人用 ／ 3D対戦格闘 ／ 60fps ／ CD-ROM 1枚</span>
+      <span class="ps">PlayStation</span>
     </div>
-    <img class="shot" src="img/screenshot-fight.png" alt="ROUND 1 の画面。制服の音有A子と金髪のナル・ブランドーが向かい合う" width="995" height="700">
+
+    <div class="catch">
+      すべての意見は、<br>拳で述べよ。
+      <div class="sm">悪の組織シャルドネ主催 ── 洗脳大会、開幕。</div>
+    </div>
+
+    <div class="shotwrap">
+      <div class="frame"><img src="img/screenshot-fight.png" alt="ROUND 1。制服の音有A子と金髪のナル・ブランドーが向かい合う" width="995" height="700"></div>
+      <div class="burst">秒間<b>60</b>フレーム</div>
+      <div class="caption">※画面写真は開発中のものです。</div>
+    </div>
+
+    <div class="logo">
+      <p class="genre">3D対戦格闘アクション</p>
+      <h1><img src="img/logo.png" alt="御意見有用" class="logoimg" onerror="this.parentNode.classList.add('nologo');this.remove()"><span class="logotext">御意見有用</span></h1>
+      <p class="en">GO-IKEN YUYO</p>
+      <div class="release"><span>好評配信中</span></div>
+    </div>
+
+    <div class="spec">
+      <span><b>対応機種</b>PlayStation</span>
+      <span><b>ジャンル</b>3D対戦格闘</span>
+      <span><b>プレイ人数</b>1〜2人</span>
+      <span><b>価格</b>￥0（税込）</span>
+      <span><b>メモリーカード</b>不要</span>
+      <span><b>発売元</b>東池袋ナル</span>
+      <span class="dl"><a href="https://github.com/GOROman/ps1-null-fighter/releases/latest">▶ 今すぐダウンロード</a></span>
+    </div>
   </div>
 </header>
 
 <nav class="top"><ul>
-  <li><a href="#story">ストーリー</a></li>
-  <li><a href="#chars">キャラクター</a></li>
+  <li><a href="#story">物語</a></li>
+  <li><a href="#chars">格闘家</a></li>
   <li><a href="#play">遊び方</a></li>
   <li><a href="#system">システム</a></li>
-  <li><a href="#issues">御意見の書き方</a></li>
-  <li><a href="#download">ダウンロード</a></li>
+  <li><a href="#campaign">御意見募集</a></li>
+  <li><a href="#download">入手方法</a></li>
+  <li class="cta"><a href="https://github.com/GOROman/ps1-null-fighter">GitHub</a></li>
 </ul></nav>
 
-<main>
-
 <section id="story" class="story">
-  <h2>ストーリー<small>STORY</small></h2>
-  <p>199X 年、東池袋。</p>
-  <p>世界各地で腕利きの格闘家が次々と姿を消していた。裏で糸を引くのは、ワインの流通網を隠れ蓑に世界征服を企む悪の組織 <b>シャルドネ</b>。総帥は、選び抜いた格闘家に禁断の洗脳術「熟成」を施し、意思のない最強の戦闘兵器へと造り変えていた。</p>
-  <p>そして今夜、シャルドネからの招待状が届く。</p>
-  <blockquote>世界最強を決める大会「御意見有用」を開催する。勝ち残った者には、何でも望みを一つ叶えよう。</blockquote>
-  <p>集まった格闘家たちは知らない。この大会が、次の「熟成」候補を選ぶための品評会であることを。</p>
-  <p>ナル・ブランドーは、消えた師の行方を追ってリングに上がる。音有A子は、洗脳された親友を取り戻すために制服のまま会場へ乗り込む。</p>
-  <p class="tagline">すべての意見は、拳で述べよ。</p>
-</section>
-
-<section id="chars">
-  <h2>キャラクター<small>CHARACTERS</small></h2>
-  <div class="chars">
-    <div class="card">
-      <div class="tag">1P SIDE / 金髪</div>
-      <h3>ナル・ブランドー</h3>
-      <p>東池袋出身の流浪の格闘家。踏み込みの速いジャブと、追い詰められてから放つ「スピニングバードキック」が持ち味。失踪した師がシャルドネに「熟成」されたと知り、大会に参加する。</p>
-      <dl>
-        <dt>スタイル</dt><dd>攻め。距離を詰めてコンボで押し切る</dd>
-        <dt>得意技</dt><dd>ジャブ → ジャブ → 膝 → ハイキック</dd>
-        <dt>切り札</dt><dd>スピニングバードキック（多段ヒット）</dd>
-      </dl>
-    </div>
-    <div class="card">
-      <div class="tag">2P SIDE / 制服</div>
-      <h3>音有A子</h3>
-      <p>都内の高校に通う 2 年生。放課後は古武術の道場で汗を流す。ある日、親友が「熟成」されて別人になって帰ってきた。制服のまま大会に飛び込む。</p>
-      <dl>
-        <dt>スタイル</dt><dd>待ち。相手の出がかりを見切って返す</dd>
-        <dt>得意技</dt><dd>フック → アッパー、足払いでガード崩し</dd>
-        <dt>切り札</dt><dd>カウンターヒット（1.5 倍ダメージ）</dd>
-      </dl>
+  <div class="wrap">
+    <div class="head"><h2>物語</h2><span class="en">STORY</span></div>
+    <div class="cols">
+      <div class="vert">消えた格闘家たちは、<br>どこへ行った。</div>
+      <div>
+        <p>199X年、東池袋。世界各地で腕利きの格闘家が次々と姿を消していた。</p>
+        <p>裏で糸を引くのは、ワインの流通網を隠れ蓑に世界征服を企む悪の組織<strong>シャルドネ</strong>。総帥は、選び抜いた格闘家に禁断の洗脳術「熟成」を施し、意思のない最強の戦闘兵器へと造り変えていた。</p>
+        <div class="invite">世界最強を決める大会「御意見有用」を開催する。<br>勝ち残った者には、何でも望みを一つ叶えよう。　── シャルドネ総帥</div>
+        <p>集まった格闘家たちは知らない。この大会が、次の「熟成」候補を選ぶための品評会であることを。</p>
+        <p>ナル・ブランドーは、消えた師の行方を追ってリングに上がる。音有A子は、洗脳された親友を取り戻すために制服のまま会場へ乗り込む。</p>
+        <div class="tag">すべての意見は、拳で述べよ。</div>
+      </div>
     </div>
   </div>
-  <p style="margin-top:18px;color:var(--dim)">技は両者共通の 32 種（パンチ 8、キック 12、必殺技 12）。CPU が使うときは P1 側が攻め、P2 側が待ちの性格になります。</p>
 </section>
 
-<section id="play">
-  <h2>遊び方<small>HOW TO PLAY</small></h2>
-  <h3>モード</h3>
-  <div class="modes">
-    <div class="card"><h3>1P MODE</h3><p>パッド 1 の P1 vs CPU。2 本先取、最大 3 ラウンド。</p></div>
-    <div class="card"><h3>VS MODE</h3><p>パッド 1 の P1 vs パッド 2 の P2。友達と対戦。</p></div>
-    <div class="card"><h3>CPU MODE</h3><p>CPU 同士の対戦を観戦。AI の戦略を眺める。</p></div>
-  </div>
-  <p>タイトル画面で十字キー上下でモードを選び、<kbd>START</kbd> で開始。試合中に <kbd>START</kbd>+<kbd>SELECT</kbd> でタイトルに戻ります。</p>
-
-  <h3>基本操作（バーチャファイター方式の P / K / G）</h3>
-  <div class="tables">
-    <table>
-      <tr><th>十字キー 左右</th><td>前進 / 後退</td></tr>
-      <tr><th><kbd>△</kbd> P</th><td>パンチ</td></tr>
-      <tr><th><kbd>○</kbd> K</th><td>キック</td></tr>
-      <tr><th><kbd>□</kbd> G（押しっぱなし）</th><td>ガード</td></tr>
-      <tr><th><kbd>△</kbd>+<kbd>○</kbd> 同時押し</th><td>必殺技</td></tr>
-      <tr><th>攻撃中に P / K</th><td>次の技につなぐ（最大 4 連）</td></tr>
-    </table>
-    <table>
-      <tr><th colspan="2" style="color:var(--yellow)">パンチ</th></tr>
-      <tr><th><kbd>△</kbd></th><td>ジャブ</td></tr>
-      <tr><th>前 + <kbd>△</kbd></th><td>ストレート</td></tr>
-      <tr><th>後 + <kbd>△</kbd></th><td>フック</td></tr>
-      <tr><th>下 + <kbd>△</kbd></th><td>アッパー</td></tr>
-    </table>
-    <table>
-      <tr><th colspan="2" style="color:var(--yellow)">キック</th></tr>
-      <tr><th><kbd>○</kbd></th><td>ハイキック</td></tr>
-      <tr><th>前 + <kbd>○</kbd></th><td>回し蹴り</td></tr>
-      <tr><th>後 + <kbd>○</kbd></th><td>後ろ蹴り</td></tr>
-      <tr><th>下 + <kbd>○</kbd></th><td>足払い（下段、ガード不能）</td></tr>
-    </table>
-    <table>
-      <tr><th colspan="2" style="color:var(--yellow)">必殺技（P + K）</th></tr>
-      <tr><th><kbd>△</kbd>+<kbd>○</kbd></th><td>スピニングバードキック</td></tr>
-      <tr><th>前 + <kbd>△</kbd>+<kbd>○</kbd></th><td>ドラゴンキック</td></tr>
-      <tr><th>後 + <kbd>△</kbd>+<kbd>○</kbd></th><td>ハリケーン</td></tr>
-      <tr><th>下 + <kbd>△</kbd>+<kbd>○</kbd></th><td>スライディング</td></tr>
-    </table>
-  </div>
-  <p style="color:var(--dim)">必殺技は使うと 4 秒ほど再使用できません。その間に P + K を押すとパンチになります。</p>
-</section>
-
-<section id="system">
-  <h2>バトルシステム<small>SYSTEM</small></h2>
-  <div class="tables">
-    <table>
-      <tr><th>ガード</th><td>中段・上段を削りダメージに抑える。下段技（足払い、スライディング）とダウン技はガードを抜ける。削りで KO にはならない。</td></tr>
-      <tr><th>カウンターヒット</th><td>相手の攻撃中に当てると 1.5 倍ダメージ、COUNTER! 表示。</td></tr>
-      <tr><th>リングアウト</th><td>ステージの端まで吹き飛ばすとその場で勝ち。</td></tr>
-    </table>
-    <table>
-      <tr><th>ラウンド</th><td>60 秒。時間切れは残り体力の多い方が勝ち。2 本先取。</td></tr>
-      <tr><th>PERFECT</th><td>無傷で勝つと表示。</td></tr>
-      <tr><th>連続ヒット</th><td>のけぞり中に当て続けると HITS 数が表示される。</td></tr>
-    </table>
-  </div>
-  <h3>初心者のコツ</h3>
-  <ul class="tips">
-    <li>相手が技を振った直後の硬直に、ジャブ → ジャブ → 膝 → ハイキックを差し込む。</li>
-    <li>ガードで固まる相手には下 + <kbd>○</kbd> の足払い。ガードを抜けて転ばせられる。</li>
-    <li>端に追い詰めたら大技で吹き飛ばしてリングアウトを狙う。</li>
-    <li>体力が減ったら少し下がって距離を取り、突っ込んできたところにカウンターを合わせる。</li>
-  </ul>
-</section>
-
-<section id="issues">
-  <h2>御意見の書き方<small>HOW TO SEND FEEDBACK</small></h2>
-  <p>このゲームは <b>GitHub Issues（御意見フォーム）に書かれた要望やバグ報告を AI が読んで実装し、CI/CD が自動でビルドしてリリースする</b>ことで育ちます。遊んで気づいたことは何でも歓迎です。</p>
-  <ol class="steps">
-    <li><a href="https://github.com/GOROman/ps1-null-fighter/issues/new/choose">御意見フォーム</a>を開き、「要望」か「バグ報告」を選ぶ（GitHub アカウントが必要です）。</li>
-    <li>フォームの項目を埋める。カテゴリ、内容、理由、関係するモードなど。</li>
-    <li>送信すると Issue になります。実装されると Issue にコメントが付き、<a href="https://github.com/GOROman/ps1-null-fighter/releases/latest">最新版</a>に反映されます。</li>
-  </ol>
-  <div class="issue-grid">
-    <div class="good"><b>伝わりやすい書き方</b><br>「前 + P + K でサマーソルトキックが欲しい。今は対空技がなくてジャンプキックに困るから」<br>「1P MODE の 2 ラウンド目、リングアウトした瞬間に相手が起き上がって二重に KO 表示が出る。毎回起きる。DuckStation 0.1-7000」</div>
-    <div class="bad"><b>伝わりにくい書き方</b><br>「もっと面白くして」<br>「バグってる」<br>どこで、何をしたら、どうなったか、本当はどうなってほしいかがあると AI が動けます。</div>
-  </div>
-  <h3>ネタの例</h3>
-  <ul class="tips">
-    <li>新しい技やコンボ、必殺技のコマンド変更</li>
-    <li>ダメージや技の出の速さなどバランスの感想</li>
-    <li>CPU の強さ、難易度選択、キャラ追加、ステージ</li>
-    <li>表示や操作の改善、エフェクト、サウンド</li>
-    <li>ストーリーやキャラ設定への意見も歓迎</li>
-  </ul>
-</section>
-
-<section id="download">
-  <h2>ダウンロード<small>DOWNLOAD</small></h2>
-  <p>zip の中身は CD イメージ（<code>nullfighter.cue</code> / <code>nullfighter.bin</code>）、操作説明（<code>MANUAL.md</code>）、変更履歴（<code>CHANGELOG.md</code>）です。</p>
-  <div class="tables">
-    <table>
-      <tr><th>エミュレータ</th><td>DuckStation などで <code>nullfighter.cue</code> を開く。cue と bin は同じフォルダに置く。</td></tr>
-      <tr><th>実機</th><td>ImgBurn 等で cue を指定して CD-R に焼く。改造 / バックアップ起動ができる本体が必要。</td></tr>
-    </table>
-    <table>
-      <tr><th>最新版</th><td>main ブランチの最新ビルドを <code>latest</code> プレリリースとして常に更新。</td></tr>
-      <tr><th>安定版</th><td><code>v*</code> タグのリリース。</td></tr>
-    </table>
-  </div>
-  <div class="cta">
-    <a class="btn" href="https://github.com/GOROman/ps1-null-fighter/releases/latest">最新版をダウンロード</a>
-    <a class="btn alt" href="https://github.com/GOROman/ps1-null-fighter/releases">すべてのリリース</a>
-    <a class="btn alt" href="https://github.com/GOROman/ps1-null-fighter">GitHub リポジトリ</a>
+<section id="chars" class="halftone">
+  <div class="wrap">
+    <div class="head"><h2>格闘家</h2><span class="en">FIGHTERS</span></div>
+    <p class="lead">二人の拳が、シャルドネの野望を砕く。</p>
+    <div class="chars">
+      <article class="fighter naru">
+        <div class="still"><span class="side">1P</span><span class="name">ナル・ブランドー</span></div>
+        <div class="body">
+          <p>東池袋出身の流浪の格闘家。踏み込みの速いジャブと、追い詰められてから放つ「スピニングバードキック」が持ち味。失踪した師がシャルドネに「熟成」されたと知り、大会に参加する。</p>
+          <dl>
+            <dt>流派</dt><dd>我流（東池袋式）</dd>
+            <dt>戦法</dt><dd>攻め。距離を詰めてコンボで押し切る</dd>
+            <dt>連携</dt><dd>ジャブ → ジャブ → 膝 → ハイキック</dd>
+            <dt>奥義</dt><dd>スピニングバードキック（多段ヒット）</dd>
+          </dl>
+        </div>
+      </article>
+      <article class="fighter ako">
+        <div class="still"><span class="side">2P</span><span class="name">音有A子</span></div>
+        <div class="body">
+          <p>都内の高校に通う2年生。放課後は古武術の道場で汗を流す。ある日、親友が「熟成」されて別人になって帰ってきた。制服のまま大会に飛び込む。</p>
+          <dl>
+            <dt>流派</dt><dd>古武術</dd>
+            <dt>戦法</dt><dd>待ち。相手の出がかりを見切って返す</dd>
+            <dt>連携</dt><dd>フック → アッパー、足払いでガードを崩す</dd>
+            <dt>奥義</dt><dd>カウンターヒット（1.5倍ダメージ）</dd>
+          </dl>
+        </div>
+      </article>
+    </div>
+    <p class="note">技は両者共通の32種（パンチ8、キック12、必殺技12）。CPUが操作するときは1P側が攻め、2P側が待ちの性格になります。</p>
   </div>
 </section>
 
-</main>
+<section id="play" class="halftone">
+  <div class="wrap">
+    <div class="head"><h2>遊び方</h2><span class="en">HOW TO PLAY</span></div>
+    <div class="modes">
+      <div class="mode"><b>1P MODE</b><span>パッド1のあなた vs CPU。2本先取、最大3ラウンド。</span></div>
+      <div class="mode"><b>VS MODE</b><span>パッド1 vs パッド2。友達と対戦。</span></div>
+      <div class="mode"><b>CPU MODE</b><span>CPU同士の対戦を観戦。AIの読み合いを眺める。</span></div>
+    </div>
+    <p class="lead">ボタンは3つ。P・K・G。</p>
+    <div class="moves">
+      <div class="mv"><h3>基本操作</h3><table>
+        <tr><td>十字キー 左右</td><td>前進 / 後退</td></tr>
+        <tr><td><kbd>△</kbd> P</td><td>パンチ</td></tr>
+        <tr><td><kbd>○</kbd> K</td><td>キック</td></tr>
+        <tr><td><kbd>□</kbd> G 押しっぱなし</td><td>ガード</td></tr>
+        <tr><td><kbd>△</kbd>+<kbd>○</kbd> 同時</td><td>必殺技</td></tr>
+        <tr><td>攻撃中に P / K</td><td>連携（最大4連）</td></tr>
+        <tr><td><kbd>START</kbd>+<kbd>SELECT</kbd></td><td>タイトルへ</td></tr>
+      </table></div>
+      <div class="mv"><h3>パンチ</h3><table>
+        <tr><td><kbd>△</kbd></td><td>ジャブ</td></tr>
+        <tr><td>前 + <kbd>△</kbd></td><td>ストレート</td></tr>
+        <tr><td>後 + <kbd>△</kbd></td><td>フック</td></tr>
+        <tr><td>下 + <kbd>△</kbd></td><td>アッパー</td></tr>
+      </table></div>
+      <div class="mv"><h3>キック</h3><table>
+        <tr><td><kbd>○</kbd></td><td>ハイキック</td></tr>
+        <tr><td>前 + <kbd>○</kbd></td><td>回し蹴り</td></tr>
+        <tr><td>後 + <kbd>○</kbd></td><td>後ろ蹴り</td></tr>
+        <tr><td>下 + <kbd>○</kbd></td><td>足払い（下段）</td></tr>
+      </table></div>
+      <div class="mv"><h3>必殺技</h3><table>
+        <tr><td><kbd>△</kbd>+<kbd>○</kbd></td><td>スピニングバードキック</td></tr>
+        <tr><td>前 + <kbd>△</kbd>+<kbd>○</kbd></td><td>ドラゴンキック</td></tr>
+        <tr><td>後 + <kbd>△</kbd>+<kbd>○</kbd></td><td>ハリケーン</td></tr>
+        <tr><td>下 + <kbd>△</kbd>+<kbd>○</kbd></td><td>スライディング</td></tr>
+      </table></div>
+    </div>
+    <p class="note">必殺技は使用後4秒ほど再使用できません。その間にP+Kを押すとパンチになります。タイトルで十字キー上下でモード選択、STARTで開始。</p>
+  </div>
+</section>
+
+<section id="system" class="halftone">
+  <div class="wrap">
+    <div class="head"><h2>システム</h2><span class="en">SYSTEM</span></div>
+    <div class="sys">
+      <div><b>ガード</b><p>中段・上段を削りダメージに抑える。下段技（足払い、スライディング）とダウン技はガードを抜ける。削りでKOにはならない。</p></div>
+      <div><b>カウンターヒット</b><p>相手の攻撃中に当てると1.5倍ダメージ。COUNTER!表示。</p></div>
+      <div><b>リングアウト</b><p>ステージの端まで吹き飛ばせば、その場で勝ち。</p></div>
+      <div><b>ラウンド</b><p>60秒、2本先取。時間切れは残り体力の多い方が勝ち。無傷ならPERFECT。</p></div>
+      <div><b>連続ヒット</b><p>のけぞり中に当て続けるとHITS数が表示される。</p></div>
+      <div><b>戦略AI</b><p>CPUは出がかり・硬直・距離・体力差・残り時間を読んで行動を選ぶ。</p></div>
+    </div>
+    <div class="tips"><b>攻略メモ</b>
+      <ul>
+        <li>相手が技を振った直後の硬直に、ジャブ → ジャブ → 膝 → ハイキックを差し込む。</li>
+        <li>ガードで固まる相手には下 + <kbd>○</kbd> の足払い。ガードを抜けて転ばせられる。</li>
+        <li>端に追い詰めたら大技で吹き飛ばしてリングアウト。</li>
+        <li>体力が減ったら一歩下がり、突っ込んできたところにカウンターを合わせる。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="campaign" class="campaign">
+  <div class="wrap">
+    <div class="head"><h2>御意見募集</h2><span class="en">FEEDBACK CAMPAIGN</span></div>
+    <p class="lead">あなたの御意見が、次のバージョンになる。</p>
+    <p>このゲームは、御意見フォーム（GitHub Issues）に書かれた要望やバグ報告を AI が読んで実装し、CI/CD が自動でビルドしてリリースすることで育ちます。遊んで気づいたことは何でも歓迎です。</p>
+    <div class="box">
+      <div>
+        <ol>
+          <li><a href="https://github.com/GOROman/ps1-null-fighter/issues/new/choose">御意見フォーム</a>を開き、「要望」か「バグ報告」を選ぶ（GitHub アカウントが必要）。</li>
+          <li>項目を埋める。カテゴリ、内容、理由、関係するモードなど。</li>
+          <li>送信。実装されると Issue にコメントが付き、最新版に反映される。</li>
+        </ol>
+        <a class="btn" href="https://github.com/GOROman/ps1-null-fighter/issues/new/choose">御意見フォームへ</a>
+        <div class="topics">
+          <span>新しい技・コンボ</span><span>バランス</span><span>CPUの強さ</span><span>キャラ追加</span><span>ステージ</span><span>演出・サウンド</span><span>操作・表示</span><span>ストーリー</span>
+        </div>
+      </div>
+      <div class="ex">
+        <div class="g"><b>伝わる書き方</b>「前 + P + K でサマーソルトキックが欲しい。今は対空技がなくてジャンプキックに困るから」<br>「1P MODE の2ラウンド目、リングアウトした瞬間に相手が起き上がって二重にKO表示が出る。毎回起きる。DuckStation 0.1-7000」</div>
+        <div class="b"><b>伝わらない書き方</b>「もっと面白くして」「バグってる」<br>どこで、何をしたら、どうなったか、本当はどうなってほしいか。これがあると AI が動けます。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="download" class="halftone dl">
+  <div class="wrap">
+    <div class="head"><h2>入手方法</h2><span class="en">DOWNLOAD</span></div>
+    <div class="dl-grid">
+      <div>
+        <div class="disc">
+          <div class="cd"></div>
+          <div>
+            <p class="lead" style="margin:0">CD-ROM イメージ、無料配信中。</p>
+            <p style="margin:6px 0 0;font-size:14px">zip の中身は <code>nullfighter.cue</code> / <code>nullfighter.bin</code>、操作説明 <code>MANUAL.md</code>、変更履歴 <code>CHANGELOG.md</code>。</p>
+          </div>
+        </div>
+        <p style="margin-top:26px">
+          <a class="bigbtn" href="https://github.com/GOROman/ps1-null-fighter/releases/latest">最新版をダウンロード</a>
+          <a class="subbtn" href="https://github.com/GOROman/ps1-null-fighter/releases">過去のバージョン</a>
+        </p>
+      </div>
+      <table>
+        <tr><th>エミュレータ</th><td>DuckStation などで <code>nullfighter.cue</code> を開く。cue と bin は同じフォルダに。</td></tr>
+        <tr><th>実機</th><td>ImgBurn 等で cue を指定して CD-R に焼く。改造 / バックアップ起動ができる本体が必要。</td></tr>
+        <tr><th>最新版</th><td>main ブランチの最新ビルドを <code>latest</code> として常に更新。</td></tr>
+        <tr><th>安定版</th><td><code>v*</code> タグのリリース。</td></tr>
+      </table>
+    </div>
+    <div class="strip" style="margin-top:44px">
+      <figure><img src="img/screenshot-fight.png" alt="ROUND 1 表示"><figcaption>ROUND 1 ── 自動カメラが二人を回り込む</figcaption></figure>
+      <figure><img src="img/screenshot.png" alt="ビューアモード"><figcaption>ビューアモード ── タイトルで START+SELECT</figcaption></figure>
+    </div>
+  </div>
+</section>
 
 <footer>
-  御意見有用 &copy; 2026 東池袋ナル ｜ コードは Claude Code、素材は ChatGPT / Tripo3D ｜ 旧称 NULL FIGHTER<br>
-  <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/docs/遊び方.md">遊び方ガイド</a> ・
-  <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/docs/TECHNICAL.md">技術ドキュメント</a> ・
-  <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/CHANGELOG.md">変更履歴</a>
+  <div class="wrap">
+    <span>※画面写真は開発中のものです。仕様は予告なく変更される場合があります。</span>
+    <span>©2026 東池袋ナル ／ コード: Claude Code ／ 素材: ChatGPT, Tripo3D ／ 旧称 NULL FIGHTER</span>
+    <span><a href="https://github.com/GOROman/ps1-null-fighter/blob/main/docs/遊び方.md">遊び方ガイド</a> ・ <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/docs/TECHNICAL.md">技術資料</a> ・ <a href="https://github.com/GOROman/ps1-null-fighter/blob/main/CHANGELOG.md">変更履歴</a></span>
+  </div>
 </footer>
 
 </body>
