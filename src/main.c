@@ -249,11 +249,17 @@ static int dance_sin(int t, int period, int phase) {
 /* Floor: Space Harrier style checkerboard on the Y = 0 plane (model
  * space, feet level).  The grid vertices are projected once through the
  * GTE; a cell is drawn as a flat quad when its four corners are in front
- * of the near plane and it fits the GPU's primitive size limit. */
-#define GRID_STEP  1100
-#define GRID_N     4                      /* cells from -N..N-1 in each direction */
+ * of the near plane and it fits the GPU's primitive size limit.
+ *
+ * The stage is a raised platform (VF-style ring) with walls on all four
+ * sides.  RING_EDGE (8400) matches STAGE_EDGE in fight.c.  The floor is
+ * at Y=0 (where characters stand), and walls drop below into the void. */
+#define GRID_STEP  1200
+#define GRID_N     8                      /* cells from -N..N-1 in each direction (covers ~9600 radius) */
 #define GRID_V     (2 * GRID_N + 1)
 #define GRID_NEAR  96
+#define RING_EDGE  8400                   /* must match STAGE_EDGE in fight.c */
+#define RING_WALL_DEPTH 800               /* how far the walls drop below floor level */
 static char *draw_floor(const Camera *cam, uint32_t *ot, char *nextpri) {
 	static uint32_t gsxy[GRID_V][GRID_V];
 	static int32_t  gsz[GRID_V][GRID_V];
@@ -304,7 +310,129 @@ static char *draw_floor(const Camera *cam, uint32_t *ot, char *nextpri) {
 			q++;
 		}
 	}
-	return (char *)q;
+	nextpri = (char *)q;
+
+	/* ---- VF-style ring walls (4 sides) ----------------------------------- */
+	/* Each wall is a quad from the floor edge down into the void.
+	 * The walls use darker shades to give the ring a 3D look. */
+	POLY_F4 *w = (POLY_F4 *)nextpri;
+	static const struct { int x0, z0, x1, z1; uint8_t r, g, b; } walls[4] = {
+		{ -RING_EDGE, -RING_EDGE, -RING_EDGE,  RING_EDGE, 18, 32, 70 },  /* left wall */
+		{  RING_EDGE, -RING_EDGE,  RING_EDGE,  RING_EDGE, 22, 38, 82 },  /* right wall */
+		{ -RING_EDGE, -RING_EDGE,  RING_EDGE, -RING_EDGE, 16, 28, 64 },  /* front wall (camera side) */
+		{ -RING_EDGE,  RING_EDGE,  RING_EDGE,  RING_EDGE, 20, 35, 76 },  /* back wall */
+	};
+	for (int side = 0; side < 4; side++) {
+		int wx0 = walls[side].x0, wz0 = walls[side].z0;
+		int wx1 = walls[side].x1, wz1 = walls[side].z1;
+		int top_y = 0;
+		int bot_y = RING_WALL_DEPTH;
+
+		SVECTOR v0 = { wx0, top_y, wz0, 0 };
+		SVECTOR v1 = { wx1, top_y, wz1, 0 };
+		SVECTOR v2 = { wx0, bot_y, wz0, 0 };
+		SVECTOR v3 = { wx1, bot_y, wz1, 0 };
+
+		uint32_t sxy0, sxy1, sxy2, sxy3;
+		int32_t sz0, sz1, sz2, sz3;
+
+		gte_ldv0(&v0); gte_rtps();
+		__asm__ volatile("swc2 $14, 0(%0); swc2 $19, 0(%1)" :: "r"(&sxy0), "r"(&sz0) : "memory");
+		gte_ldv0(&v1); gte_rtps();
+		__asm__ volatile("swc2 $14, 0(%0); swc2 $19, 0(%1)" :: "r"(&sxy1), "r"(&sz1) : "memory");
+		gte_ldv0(&v2); gte_rtps();
+		__asm__ volatile("swc2 $14, 0(%0); swc2 $19, 0(%1)" :: "r"(&sxy2), "r"(&sz2) : "memory");
+		gte_ldv0(&v3); gte_rtps();
+		__asm__ volatile("swc2 $14, 0(%0); swc2 $19, 0(%1)" :: "r"(&sxy3), "r"(&sz3) : "memory");
+
+		if (sz0 <= GRID_NEAR || sz1 <= GRID_NEAR || sz2 <= GRID_NEAR || sz3 <= GRID_NEAR)
+			continue;
+
+		int x0 = (int16_t)(sxy0 & 0xffff), x1 = (int16_t)(sxy1 & 0xffff);
+		int x2 = (int16_t)(sxy2 & 0xffff), x3 = (int16_t)(sxy3 & 0xffff);
+		int y0 = (int16_t)(sxy0 >> 16), y1 = (int16_t)(sxy1 >> 16);
+		int y2 = (int16_t)(sxy2 >> 16), y3 = (int16_t)(sxy3 >> 16);
+
+		int xmin = x0, xmax = x0, ymin = y0, ymax = y0;
+		if (x1 < xmin) xmin = x1; if (x1 > xmax) xmax = x1;
+		if (x2 < xmin) xmin = x2; if (x2 > xmax) xmax = x2;
+		if (x3 < xmin) xmin = x3; if (x3 > xmax) xmax = x3;
+		if (y1 < ymin) ymin = y1; if (y1 > ymax) ymax = y1;
+		if (y2 < ymin) ymin = y2; if (y2 > ymax) ymax = y2;
+		if (y3 < ymin) ymin = y3; if (y3 > ymax) ymax = y3;
+
+		if (xmax < 0 || xmin >= SCREEN_XRES || ymax < 0 || ymin >= SCREEN_YRES)
+			continue;
+		if (xmax - xmin > 1000 || ymax - ymin > 500)
+			continue;
+
+		setPolyF4(w);
+		setRGB0(w, walls[side].r, walls[side].g, walls[side].b);
+		*(uint32_t *)&w->x0 = sxy0;
+		*(uint32_t *)&w->x1 = sxy1;
+		*(uint32_t *)&w->x2 = sxy2;
+		*(uint32_t *)&w->x3 = sxy3;
+		addPrim(ot + (OT_LEN - 1), w);
+		w++;
+	}
+
+	/* ---- ring edge highlight (top edge stripe) --------------------------- */
+	/* A narrow bright stripe along the top edge of each wall gives it definition */
+	for (int side = 0; side < 4; side++) {
+		int wx0 = walls[side].x0, wz0 = walls[side].z0;
+		int wx1 = walls[side].x1, wz1 = walls[side].z1;
+		int top_y = 0;
+		int stripe_y = 60;
+
+		SVECTOR v0 = { wx0, top_y, wz0, 0 };
+		SVECTOR v1 = { wx1, top_y, wz1, 0 };
+		SVECTOR v2 = { wx0, stripe_y, wz0, 0 };
+		SVECTOR v3 = { wx1, stripe_y, wz1, 0 };
+
+		uint32_t sxy0, sxy1, sxy2, sxy3;
+		int32_t sz0, sz1, sz2, sz3;
+
+		gte_ldv0(&v0); gte_rtps();
+		__asm__ volatile("swc2 $14, 0(%0); swc2 $19, 0(%1)" :: "r"(&sxy0), "r"(&sz0) : "memory");
+		gte_ldv0(&v1); gte_rtps();
+		__asm__ volatile("swc2 $14, 0(%0); swc2 $19, 0(%1)" :: "r"(&sxy1), "r"(&sz1) : "memory");
+		gte_ldv0(&v2); gte_rtps();
+		__asm__ volatile("swc2 $14, 0(%0); swc2 $19, 0(%1)" :: "r"(&sxy2), "r"(&sz2) : "memory");
+		gte_ldv0(&v3); gte_rtps();
+		__asm__ volatile("swc2 $14, 0(%0); swc2 $19, 0(%1)" :: "r"(&sxy3), "r"(&sz3) : "memory");
+
+		if (sz0 <= GRID_NEAR || sz1 <= GRID_NEAR || sz2 <= GRID_NEAR || sz3 <= GRID_NEAR)
+			continue;
+
+		int x0 = (int16_t)(sxy0 & 0xffff), x1 = (int16_t)(sxy1 & 0xffff);
+		int x2 = (int16_t)(sxy2 & 0xffff), x3 = (int16_t)(sxy3 & 0xffff);
+		int y0 = (int16_t)(sxy0 >> 16), y1 = (int16_t)(sxy1 >> 16);
+		int y2 = (int16_t)(sxy2 >> 16), y3 = (int16_t)(sxy3 >> 16);
+
+		int xmin = x0, xmax = x0, ymin = y0, ymax = y0;
+		if (x1 < xmin) xmin = x1; if (x1 > xmax) xmax = x1;
+		if (x2 < xmin) xmin = x2; if (x2 > xmax) xmax = x2;
+		if (x3 < xmin) xmin = x3; if (x3 > xmax) xmax = x3;
+		if (y1 < ymin) ymin = y1; if (y1 > ymax) ymax = y1;
+		if (y2 < ymin) ymin = y2; if (y2 > ymax) ymax = y2;
+		if (y3 < ymin) ymin = y3; if (y3 > ymax) ymax = y3;
+
+		if (xmax < 0 || xmin >= SCREEN_XRES || ymax < 0 || ymin >= SCREEN_YRES)
+			continue;
+		if (xmax - xmin > 1000 || ymax - ymin > 500)
+			continue;
+
+		setPolyF4(w);
+		setRGB0(w, 80, 110, 180);
+		*(uint32_t *)&w->x0 = sxy0;
+		*(uint32_t *)&w->x1 = sxy1;
+		*(uint32_t *)&w->x2 = sxy2;
+		*(uint32_t *)&w->x3 = sxy3;
+		addPrim(ot + (OT_LEN - 2), w);
+		w++;
+	}
+
+	return (char *)w;
 }
 
 /* Debug: the model's textures at the bottom right (above the debug text) */
