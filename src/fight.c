@@ -33,6 +33,10 @@
 #define HADOUKEN_HITBOX   400         /* collision radius */
 #define HADOUKEN_MOVE_IDX 32          /* index in MOVES table */
 
+/* tetsuzanko (iron mountain lean) balance - VF-style shoulder attack */
+#define TETSUZANKO_CD     (3 * 60)    /* 3 second cooldown */
+#define TETSUZANKO_MOVE_IDX 33        /* index in MOVES table */
+
 /* dogeza (prostration) - desperation move when HP <= 30% */
 #define DOGEZA_HP_THRESHOLD 30        /* can only use when HP <= 30% */
 #define DOGEZA_STARTUP     30         /* frames before speech bubble appears */
@@ -374,6 +378,64 @@ static int check_236(const Fighter *f, int dir) {
 	return 0;
 }
 
+/* ---- back-forward-forward command detection (tetsuzanko) -----------------
+ * Records d-pad state each frame and checks for back -> forward -> forward
+ * sequence within the last ~12 frames, relative to the fighter's facing direction.
+ * Returns 1 if the command was detected. */
+static int check_bff(const Fighter *f, int dir) {
+	/* dir > 0: opponent is to the right, so forward = RIGHT, back = LEFT
+	 * dir < 0: opponent is to the left, so forward = LEFT, back = RIGHT */
+	uint16_t fwd  = dir > 0 ? PAD_RIGHT : PAD_LEFT;
+	uint16_t back = dir > 0 ? PAD_LEFT : PAD_RIGHT;
+
+	/* scan the circular buffer backwards for the sequence: fwd -> fwd -> back
+	 * (most recent first) allow some leniency (a few frames per step) */
+	int idx = (f->cmd_idx - 1) & 7;
+	int state = 0;  /* 0: looking for fwd, 1: looking for fwd, 2: looking for back */
+	int frames[3] = {0, 0, 0};  /* frames spent in each state */
+	const int MAX_GAP = 4;  /* max frames for each step */
+
+	for (int i = 0; i < 8; i++) {
+		uint16_t d = f->cmd_hist[idx];
+		idx = (idx - 1) & 7;
+
+		if (state == 0) {
+			/* looking for first forward (most recent input) */
+			if ((d & (fwd | back)) == fwd) {
+				frames[0]++;
+				if (frames[0] >= 1) state = 1;
+			} else if (frames[0] > 0) {
+				break;  /* gap too large */
+			}
+		} else if (state == 1) {
+			/* looking for second forward */
+			if ((d & (fwd | back)) == fwd) {
+				frames[1]++;
+				if (frames[1] >= 1) state = 2;
+			} else if ((d & (fwd | back)) == back) {
+				/* can skip directly to back */
+				state = 2;
+				frames[2] = 1;
+			} else if (frames[1] > 0 && frames[1] < MAX_GAP) {
+				/* allow small gap */
+			} else if (frames[1] >= MAX_GAP) {
+				break;
+			}
+		} else if (state == 2) {
+			/* looking for back */
+			if ((d & (fwd | back)) == back) {
+				frames[2]++;
+				if (frames[2] >= 1) return 1;  /* success! */
+			} else if (frames[2] > 0 && frames[2] < MAX_GAP) {
+				/* allow small gap */
+			} else if (frames[2] >= MAX_GAP) {
+				break;
+			}
+		}
+	}
+	return 0;
+}
+
 /* spawn a hadouken projectile for fighter `side` */
 static void spawn_hadouken(Fight *fg, int side) {
 	Fighter *f = &fg->f[side];
@@ -552,6 +614,15 @@ static int player_act(Fight *fg, int i, int dir) {
 			int m = HADOUKEN_MOVE_IDX;
 			if (f->move_anim[m] >= 0) {
 				f->hadouken_cd = HADOUKEN_CD;
+				start_single(fg, i, m);
+				return 1;
+			}
+		}
+		/* check for back-forward-forward + P+K tetsuzanko command */
+		if (btn == ATK_S && f->special_cd <= 0 && check_bff(f, dir)) {
+			int m = TETSUZANKO_MOVE_IDX;
+			if (f->move_anim[m] >= 0) {
+				f->special_cd = TETSUZANKO_CD;
 				start_single(fg, i, m);
 				return 1;
 			}
